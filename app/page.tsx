@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabase";
 import Avatar, { resizeImage } from "@/components/Avatar";
 import { fmt, parseMoney, groupDigits } from "@/lib/money";
 import Reserves from "@/components/Reserves";
+import Reports from "@/components/Reports";
 
 type Budget = { id: string; name: string; starting_balance: number };
 type Cat = { id: string; name: string; amount: number };
@@ -30,29 +31,55 @@ function GoldButton({ children, onClick }: { children: React.ReactNode; onClick:
 }
 
 function Auth() {
-  const [mode, setMode] = useState<"in" | "up">("in");
+  const [mode, setMode] = useState<"in" | "up" | "forgot">("in");
   const [f, setF] = useState({ email: "", password: "", username: "", phone: "+256" });
   const [msg, setMsg] = useState("");
+  const [show, setShow] = useState(false);
+  const [canResend, setCanResend] = useState(false);
   const submit = async () => {
-    setMsg("");
+    setMsg(""); setCanResend(false);
+    if (!/^\S+@\S+\.\S+$/.test(f.email)) return setMsg("Enter a valid email address.");
+    if (mode === "forgot") {
+      const { error } = await supabase.auth.resetPasswordForEmail(f.email, { redirectTo: window.location.origin });
+      return setMsg(error ? error.message : "If that email has an account, a reset link is on its way.");
+    }
+    if (f.password.length < 8) return setMsg("Password must be at least 8 characters.");
     if (mode === "up") {
       if (!/^\+256\d{9}$/.test(f.phone)) return setMsg("Phone must look like +256700000000");
       const { error } = await supabase.auth.signUp({ email: f.email, password: f.password, options: { data: { username: f.username, phone: f.phone } } });
-      setMsg(error ? error.message : "Check your email to verify your account, then log in.");
+      setMsg(error ? error.message : "Check your email to verify your account, then log in."); if (!error) setCanResend(true);
     } else {
       const { error } = await supabase.auth.signInWithPassword({ email: f.email, password: f.password });
-      if (error) setMsg(error.message);
+      if (error) { setMsg(error.message); if (/confirm/i.test(error.message)) setCanResend(true); }
     }
   };
+  const resend = async () => { const { error } = await supabase.auth.resend({ type: "signup", email: f.email }); setMsg(error ? error.message : "Verification email sent again."); };
   return (
     <main className="mx-auto max-w-sm space-y-3 p-6 pt-20"><Logo />
-      {mode === "up" && <><input className={input} placeholder="Username" onChange={e => setF({ ...f, username: e.target.value })} />
-        <input className={input} placeholder="+256 phone" value={f.phone} onChange={e => setF({ ...f, phone: e.target.value })} /></>}
-      <input className={input} type="email" placeholder="Email" onChange={e => setF({ ...f, email: e.target.value })} />
-      <input className={input} type="password" placeholder="Password" onChange={e => setF({ ...f, password: e.target.value })} />
-      <GoldButton onClick={submit}>{mode === "up" ? "Sign up" : "Log in"}</GoldButton>
+      {mode === "up" && <><input className={input} aria-label="Username" placeholder="Username" onChange={e => setF({ ...f, username: e.target.value })} />
+        <input className={input} aria-label="Phone" placeholder="+256 phone" value={f.phone} onChange={e => setF({ ...f, phone: e.target.value })} /></>}
+      <input className={input} type="email" aria-label="Email" placeholder="Email" onChange={e => setF({ ...f, email: e.target.value })} />
+      {mode !== "forgot" && <div className="relative"><input className={input} type={show ? "text" : "password"} aria-label="Password" placeholder="Password (8+ characters)" onChange={e => setF({ ...f, password: e.target.value })} />
+        <button type="button" className="absolute right-3 top-3 text-sm text-gray-400" onClick={() => setShow(!show)}>{show ? "Hide" : "Show"}</button></div>}
+      <GoldButton onClick={submit}>{mode === "up" ? "Sign up" : mode === "forgot" ? "Send reset link" : "Log in"}</GoldButton>
       {msg && <p role="alert" className="text-sm text-yellow-300">{msg}</p>}
-      <button className="text-sm text-gray-400" onClick={() => setMode(mode === "in" ? "up" : "in")}>{mode === "in" ? "New here? Sign up" : "Have an account? Log in"}</button>
+      {canResend && <button className="text-sm text-yellow-300 underline" onClick={resend}>Resend verification email</button>}
+      <div className="flex justify-between text-sm text-gray-400">
+        <button onClick={() => { setMode(mode === "up" ? "in" : "up"); setMsg(""); }}>{mode === "up" ? "Have an account? Log in" : "New here? Sign up"}</button>
+        {mode !== "forgot" ? <button onClick={() => { setMode("forgot"); setMsg(""); }}>Forgot password?</button> : <button onClick={() => { setMode("in"); setMsg(""); }}>Back to log in</button>}</div>
+    </main>
+  );
+}
+
+function NewPassword({ done }: { done: () => void }) {
+  const [a, setA] = useState(""); const [b, setB] = useState(""); const [msg, setMsg] = useState("");
+  return (
+    <main className="mx-auto max-w-sm space-y-3 p-6 pt-20"><Logo /><h2 className="font-semibold">Choose a new password</h2>
+      <input className={input} type="password" aria-label="New password" placeholder="New password (8+ characters)" onChange={e => setA(e.target.value)} />
+      <input className={input} type="password" aria-label="Confirm new password" placeholder="Confirm password" onChange={e => setB(e.target.value)} />
+      <GoldButton onClick={async () => { if (a.length < 8) return setMsg("Password must be at least 8 characters."); if (a !== b) return setMsg("Passwords don't match.");
+        const { error } = await supabase.auth.updateUser({ password: a }); if (error) setMsg(error.message); else done(); }}>Update password</GoldButton>
+      {msg && <p role="alert" className="text-sm text-yellow-300">{msg}</p>}
     </main>
   );
 }
@@ -212,6 +239,7 @@ function Dashboard() {
             </>; })()}
         </section>
       </>}
+      <Reports />
       <Reserves Btn={GoldButton} input={input} say={say} />
       {ask && <div className="fixed inset-0 z-30 flex items-end justify-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-label="Confirm delete" onKeyDown={e => e.key === "Escape" && setAsk(null)}>
         <div className="glass-strong w-full max-w-sm space-y-3 rounded-3xl p-5"><p className="font-semibold">Delete this?</p><p className="text-sm text-gray-400">{ask.table === "planned_categories" ? "This also deletes its logged expenses. You can undo for a few seconds." : "You can undo for a few seconds."}</p>
@@ -250,11 +278,13 @@ function Dashboard() {
 
 export default function Home() {
   const [session, setSession] = useState<boolean | null>(null);
+  const [recovery, setRecovery] = useState(false);
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(!!data.session));
-    const { data } = supabase.auth.onAuthStateChange((_e, s) => setSession(!!s));
+    const { data } = supabase.auth.onAuthStateChange((e, s) => { if (e === "PASSWORD_RECOVERY") setRecovery(true); setSession(!!s); });
     return () => data.subscription.unsubscribe();
   }, []);
   if (session === null) return <p className="p-10 text-center text-gray-400">Loading…</p>;
+  if (recovery) return <NewPassword done={() => setRecovery(false)} />;
   return session ? <Dashboard /> : <Auth />;
 }
