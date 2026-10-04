@@ -4,12 +4,17 @@ import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/lib/supabase";
 import Avatar, { resizeImage } from "@/components/Avatar";
 import { fmt, parseMoney, groupDigits } from "@/lib/money";
+import Reserves from "@/components/Reserves";
 
 type Budget = { id: string; name: string; starting_balance: number };
 type Cat = { id: string; name: string; amount: number };
 type Exp = { id: string; category_id: string | null; label: string | null; amount: number; spent_on: string; created_at?: string };
 const money = (n: number) => fmt(n);
 const input = "glass w-full rounded-2xl p-3 outline-none focus:border-yellow-400";
+const dayLabel = (d: string) => {
+  const t = new Date().toISOString().slice(0, 10), y = new Date(Date.now() - 864e5).toISOString().slice(0, 10);
+  return d === t ? "Today" : d === y ? "Yesterday" : new Date(d + "T00:00:00").toLocaleDateString("en-UG", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+};
 const Logo = () => <h1 className="gold-text text-3xl font-extrabold">kkingg reserves</h1>;
 
 // Gold button: haptic buzz + cash emoji floats above and fades
@@ -62,6 +67,9 @@ function Dashboard() {
   const [nc, setNc] = useState({ name: "", amt: "" });
   const today = () => new Date().toISOString().slice(0, 10);
   const blank = { id: "", cat: "", label: "", amt: "", date: today() };
+  const [q, setQ] = useState("");
+  const [fcat, setFcat] = useState("");
+  const [limit, setLimit] = useState(20);
   const [sheet, setSheet] = useState(false);
   const [f, setF] = useState(blank);
   const [ec, setEc] = useState<null | { id: string; name: string; amt: string }>(null);
@@ -185,11 +193,26 @@ function Dashboard() {
               <button className="py-2 pr-4 text-xs text-gray-400" onClick={() => setEc({ id: c.id, name: c.name, amt: groupDigits(String(c.amount)) })}>edit</button><button className="py-2 text-xs text-gray-400" onClick={() => del("planned_categories", c.id)}>delete</button></div>; })}
           <div className="flex gap-2"><input className={input} aria-label="Category name" value={nc.name} placeholder="Category" onChange={e => setNc({ ...nc, name: e.target.value })} /><input className={input} aria-label="Category amount" value={nc.amt} inputMode="numeric" placeholder="Amount" onChange={e => setNc({ ...nc, amt: e.target.value })} /></div>
           <GoldButton onClick={async () => { const v = parseMoney(nc.amt); if (!nc.name.trim() || v === null) return say("Enter a name and a valid amount."); const { error } = await supabase.from("planned_categories").insert({ budget_id: bid, name: nc.name.trim(), amount: v }); if (error) say(error.message); else { setNc({ name: "", amt: "" }); loadDetail(); } }}>Add category</GoldButton></section>
-        <section className="space-y-1"><h2 className="font-semibold text-yellow-400">History</h2>
-          {exps.map(e => <div key={e.id} className={`flex justify-between rounded-lg p-2 text-sm ${e.category_id ? "bg-white/5" : "border border-orange-400/50 bg-orange-400/10"}`}>
-            <button className="min-w-0 truncate py-1 text-left" aria-label="Edit expense" onClick={() => openEdit(e)}>{e.spent_on} {e.category_id ? cats.find(c => c.id === e.category_id)?.name : "⚠ Unplanned"} {e.label}</button>
-            <span>{money(e.amount)} <button aria-label="Delete expense" onClick={() => del("expenses", e.id)}>✕</button></span></div>)}</section>
+        <section className="space-y-2"><h2 className="font-semibold text-yellow-400">History</h2>
+          <div className="flex gap-2"><input className={input} type="search" aria-label="Search expenses" placeholder="Search" value={q} onChange={e => { setQ(e.target.value); setLimit(20); }} />
+            <select className={input} aria-label="Filter expenses" value={fcat} onChange={e => { setFcat(e.target.value); setLimit(20); }}><option value="">All</option><option value="__u">Unplanned only</option>{cats.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
+          {(() => {
+            const term = q.trim().toLowerCase();
+            const hit = exps.filter(e => (fcat === "" || (fcat === "__u" ? !e.category_id : e.category_id === fcat)) &&
+              (!term || `${e.label ?? ""} ${cats.find(c => c.id === e.category_id)?.name ?? "unplanned"} ${e.amount}`.toLowerCase().includes(term)))
+              .sort((a, b2) => b2.spent_on.localeCompare(a.spent_on));
+            const groups: [string, Exp[]][] = []; hit.slice(0, limit).forEach(e => { const g = groups.find(x => x[0] === e.spent_on); g ? g[1].push(e) : groups.push([e.spent_on, [e]]); });
+            return <>
+              {hit.length === 0 && <p className="text-gray-500">{exps.length ? "No matches." : "No expenses yet. Tap + to add your first."}</p>}
+              {groups.map(([d, rows]) => <div key={d} className="space-y-1"><p className="pt-2 text-xs uppercase tracking-wide text-gray-400">{dayLabel(d)} · {money(rows.reduce((t, e) => t + Number(e.amount), 0))}</p>
+                {rows.map(e => <div key={e.id} className={`flex justify-between rounded-lg p-2 text-sm ${e.category_id ? "bg-white/5" : "border border-orange-400/50 bg-orange-400/10"}`}>
+                  <button className="min-w-0 truncate py-1 text-left" aria-label="Edit expense" onClick={() => openEdit(e)}>{e.category_id ? cats.find(c => c.id === e.category_id)?.name : "⚠ Unplanned"} {e.label}</button>
+                  <span>{money(e.amount)} <button aria-label="Delete expense" className="p-1" onClick={() => del("expenses", e.id)}>✕</button></span></div>)}</div>)}
+              {hit.length > limit && <button className="glass w-full rounded-2xl p-3" onClick={() => setLimit(limit + 20)}>Show more</button>}
+            </>; })()}
+        </section>
       </>}
+      <Reserves Btn={GoldButton} input={input} say={say} />
       {ask && <div className="fixed inset-0 z-30 flex items-end justify-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-label="Confirm delete" onKeyDown={e => e.key === "Escape" && setAsk(null)}>
         <div className="glass-strong w-full max-w-sm space-y-3 rounded-3xl p-5"><p className="font-semibold">Delete this?</p><p className="text-sm text-gray-400">{ask.table === "planned_categories" ? "This also deletes its logged expenses. You can undo for a few seconds." : "You can undo for a few seconds."}</p>
           <div className="flex gap-2"><button autoFocus className="glass flex-1 rounded-2xl p-3" onClick={() => setAsk(null)}>Cancel</button><button className="flex-1 rounded-2xl bg-red-500 p-3 font-semibold" onClick={doDel}>Delete</button></div></div></div>}
