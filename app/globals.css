@@ -1,29 +1,32 @@
 @tailwind base;@tailwind components;@tailwind utilities;
-:root{--glass-bg:rgb(255 255 255/.08);--glass-border:rgb(255 255 255/.16);--accent:#FFD700}
-body{background:#0b0b0d;color:#f4f4f5;font-variant-numeric:tabular-nums}
+:root{--glass-bg:rgb(255 255 255/.08);--glass-border:rgb(255 255 255/.16);--surface-bg:rgb(255 255 255/.05);--surface-border:rgb(255 255 255/.08);--accent:#FFD700}
+html{font-family:Inter,ui-sans-serif,system-ui,-apple-system,"SF Pro Text","Segoe UI",Roboto,sans-serif}
+body{background:#0b0b0d;color:#f4f4f5;font-variant-numeric:tabular-nums;letter-spacing:-.005em}
 body::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;
  background:radial-gradient(40% 35% at 15% 10%,rgb(255 200 0/.22),transparent),radial-gradient(35% 30% at 90% 30%,rgb(140 90 255/.16),transparent),radial-gradient(40% 35% at 40% 100%,rgb(255 140 0/.14),transparent)}
 .gold-text{background:linear-gradient(135deg,#FFE55C,#FFD700 50%,#B8860B);-webkit-background-clip:text;color:transparent}
-/* Liquid Glass approximation: control layer only. Data sits on .surface */
-.glass{background:var(--glass-bg);backdrop-filter:blur(24px) saturate(170%);-webkit-backdrop-filter:blur(24px) saturate(170%);
- border:1px solid var(--glass-border);box-shadow:inset 0 1px 0 rgb(255 255 255/.25),0 8px 32px rgb(0 0 0/.35)}
-.glass-strong{background:rgb(30 30 36/.72);backdrop-filter:blur(28px) saturate(180%);-webkit-backdrop-filter:blur(28px) saturate(180%);
- border:1px solid var(--glass-border);box-shadow:inset 0 1px 0 rgb(255 255 255/.25),0 8px 32px rgb(0 0 0/.45)}
-.surface{background:rgb(255 255 255/.05);border:1px solid rgb(255 255 255/.08)}
-@supports not (backdrop-filter:blur(1px)){.glass,.glass-strong{background:rgb(32 32 38/.94)}}
-@media (prefers-reduced-transparency:reduce),(prefers-contrast:more){.glass,.glass-strong{background:#1b1b21;backdrop-filter:none;-webkit-backdrop-filter:none;border-color:rgb(255 255 255/.5)}}
-:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+/* Frosted glass: controls/panels. Data cards (.surface) stay calmer so numbers are always readable. */
+.glass{background:var(--glass-bg);backdrop-filter:blur(24px) saturate(170%);-webkit-backdrop-filter:blur(24px) saturate(170%);border:1px solid var(--glass-border);box-shadow:inset 0 1px 0 rgb(255 255 255/.25),0 8px 32px rgb(0 0 0/.35)}
+.glass-strong{background:rgb(30 30 36/.72);backdrop-filter:blur(28px) saturate(180%);-webkit-backdrop-filter:blur(28px) saturate(180%);border:1px solid var(--glass-border);box-shadow:inset 0 1px 0 rgb(255 255 255/.25),0 8px 32px rgb(0 0 0/.45)}
+.surface{background:var(--surface-bg);border:1px solid var(--surface-border)}
 .text-yellow-400{color:var(--accent)}
-html[data-theme=light] body{background:#f6f3ea;color:#18181b}
-html[data-theme=light] body::before{background:radial-gradient(40% 35% at 15% 10%,rgb(255 200 0/.25),transparent),radial-gradient(35% 30% at 90% 30%,rgb(140 90 255/.1),transparent)}
-html[data-theme=light]{--glass-bg:rgb(255 255 255/.65);--glass-border:rgb(0 0 0/.14)}
-html[data-theme=light] .glass{box-shadow:inset 0 1px 0 rgb(255 255 255/.9),0 8px 24px rgb(0 0 0/.08)}
-html[data-theme=light] .glass-strong{background:rgb(255 255 255/.88);box-shadow:inset 0 1px 0 #fff,0 8px 28px rgb(0 0 0/.15)}
-html[data-theme=light] .surface{background:rgb(0 0 0/.04);border-color:rgb(0 0 0/.08)}
-html[data-theme=light] .bg-white\/5,html[data-theme=light] .bg-white\/10{background:rgb(0 0 0/.05)}
-html[data-theme=light] .text-gray-300,html[data-theme=light] .text-gray-400{color:#52525b}
-html[data-theme=light] .text-gray-500{color:#71717a}
-html[data-theme=light] .text-yellow-400{color:color-mix(in srgb,var(--accent) 55%,#000)}
-html[data-theme=light] .text-green-400{color:#15803d}html[data-theme=light] .text-red-400,html[data-theme=light] .text-red-300{color:#b91c1c}html[data-theme=light] .text-orange-400{color:#c2410c}
-html[data-theme=light] .hover\:bg-white\/10:hover{background:rgb(0 0 0/.07)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@supports not (backdrop-filter:blur(1px)){.glass,.glass-strong{background:rgb(32 32 38/.94)}html[data-theme=light] .glass,html[data-theme=light] .glass-strong,html[data-theme=light] .surface{background:rgb(255 255 255/.94)}}
+@media (prefers-reduced-transparency:reduce),(prefers-contrast:more){.glass,.glass-strong{background:#1b1b21;backdrop-filter:none;-webkit-backdrop-filter:none;border-color:rgb(255 255 255/.5)}html[data-theme=light] .glass,html[data-theme=light] .glass-strong,html[data-theme=light] .surface{background:#fff;backdrop-filter:none;border-color:rgb(0 0 0/.4)}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+/* Light glassmorphism: pastel gradient + white frosted cards */
+html[data-theme=light]{--glass-bg:rgb(255 255 255/.5);--glass-border:rgb(255 255 255/.8);--surface-bg:rgb(255 255 255/.6);--surface-border:rgb(255 255 255/.85)}
+html[data-theme=light] body{color:#1b1b3a;background:linear-gradient(135deg,#d8d2ff 0%,#efd9f5 45%,#ffd9e2 100%) fixed}
+html[data-theme=light] body::before{background:radial-gradient(45% 40% at 10% 15%,rgb(167 139 250/.45),transparent),radial-gradient(40% 40% at 95% 20%,rgb(251 182 206/.55),transparent),radial-gradient(45% 45% at 50% 100%,rgb(147 197 253/.45),transparent)}
+html[data-theme=light] .glass,html[data-theme=light] .surface{backdrop-filter:blur(22px) saturate(160%);-webkit-backdrop-filter:blur(22px) saturate(160%);box-shadow:0 10px 36px rgb(99 80 180/.14),inset 0 1px 0 rgb(255 255 255/.9)}
+html[data-theme=light] .glass-strong{background:rgb(255 255 255/.82);box-shadow:0 12px 40px rgb(99 80 180/.2),inset 0 1px 0 #fff}
+html[data-theme=light] ::placeholder{color:#8b8aa8}
+html[data-theme=light] .bg-white\/5,html[data-theme=light] .bg-white\/10{background:rgb(255 255 255/.45)}
+html[data-theme=light] .border-white\/10{border-color:rgb(0 0 0/.1)}
+html[data-theme=light] .text-gray-300,html[data-theme=light] .text-gray-400{color:#5b5b7a}
+html[data-theme=light] .text-gray-500{color:#7a7a98}
+html[data-theme=light] .text-yellow-400{color:color-mix(in srgb,var(--accent) 50%,#2b1d6b)}
+html[data-theme=light] .text-yellow-300{color:#7a5a00}
+html[data-theme=light] .text-green-400{color:#15803d}html[data-theme=light] .text-red-400,html[data-theme=light] .text-red-300{color:#be123c}html[data-theme=light] .text-orange-400{color:#c2410c}
+html[data-theme=light] .hover\:bg-white\/10:hover{background:rgb(255 255 255/.55)}
+html[data-theme=light] .placeholder\:text-white\/20::placeholder{color:rgb(27 27 58/.25)}
