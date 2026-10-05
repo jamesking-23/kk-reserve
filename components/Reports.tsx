@@ -13,10 +13,24 @@ const cell = (v: string | number | null) => {
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
 
-export default function Reports() {
+// Minimal RFC-4180 style CSV parser (quotes, escaped quotes, CRLF).
+function parseCsv(t: string) {
+  const rows: string[][] = []; let r: string[] = [], c = "", q = false;
+  for (let i = 0; i < t.length; i++) { const ch = t[i];
+    if (q) { if (ch === '"') { if (t[i + 1] === '"') { c += '"'; i++; } else q = false; } else c += ch; }
+    else if (ch === '"') q = true; else if (ch === ",") { r.push(c); c = ""; }
+    else if (ch === "\n" || ch === "\r") { if (ch === "\r" && t[i + 1] === "\n") i++; r.push(c); c = ""; if (r.some(x => x !== "")) rows.push(r); r = []; }
+    else c += ch; }
+  r.push(c); if (r.some(x => x !== "")) rows.push(r); return rows;
+}
+type Row = { category_id: string | null; label: string | null; amount: number; spent_on: string };
+
+export default function Reports({ onChanged }: { onChanged?: () => void }) {
+  const [prev, setPrev] = useState<null | { ok: Row[]; dup: number; errs: string[] }>(null);
+  const [note, setNote] = useState("");
   const [bs, setBs] = useState<B[]>([]); const [cs, setCs] = useState<C[]>([]); const [es, setEs] = useState<E[]>([]);
   const [sel, setSel] = useState(""); const [ready, setReady] = useState(false);
-  useEffect(() => { (async () => {
+  const load = async () => {
     const [b, c] = await Promise.all([supabase.from("budgets").select("id,name,starting_balance").order("created_at", { ascending: false }),
       supabase.from("planned_categories").select("id,budget_id,name,amount")]);
     const all: E[] = []; // page through expenses (API returns max 1000 rows per request)
@@ -25,8 +39,33 @@ export default function Reports() {
       all.push(...(data ?? [])); if ((data?.length ?? 0) < 1000) break;
     }
     setBs(b.data ?? []); setCs(c.data ?? []); setEs(all); setSel(b.data?.[0]?.id ?? ""); setReady(true);
-  })(); }, []);
+  };
+  useEffect(() => { load(); }, []);
 
+  const onFile = async (f?: File) => {
+    setNote(""); setPrev(null); if (!f) return;
+    if (f.size > 2 * 1024 * 1024) return setNote("File is over 2 MB.");
+    const rows = parseCsv((await f.text()).replace(/^\ufeff/, "")); const h = (rows[0] ?? []).map(x => x.trim().toLowerCase());
+    const di = h.indexOf("date"), ai = h.indexOf("amount"), ci = h.indexOf("category"), ni = h.findIndex(x => x === "note" || x === "label");
+    if (di < 0 || ai < 0) return setNote("The first row must include Date and Amount columns (Category and Note are optional).");
+    const seen = new Set(es.filter(e => e.budget_id === sel).map(e => `${e.spent_on}|${Number(e.amount)}|${e.label ?? ""}|${e.category_id ?? ""}`));
+    const cats = cs.filter(c => c.budget_id === sel); const ok: Row[] = []; const errs: string[] = []; let dup = 0;
+    rows.slice(1).forEach((r, i) => { const line = i + 2; const date = (r[di] ?? "").trim(); const amount = Number((r[ai] ?? "").replace(/,/g, ""));
+      const label = (ni >= 0 ? (r[ni] ?? "").replace(/^'(?=[=+\-@])/, "").trim() : "") || null; const cn = ci >= 0 ? (r[ci] ?? "").trim() : "";
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || isNaN(Date.parse(date))) return void errs.push(`Row ${line}: date must be YYYY-MM-DD`);
+      if (!Number.isFinite(amount) || amount <= 0) return void errs.push(`Row ${line}: amount must be a positive number`);
+      const cat = !cn || cn.toLowerCase() === "unplanned" ? null : cats.find(c => c.name.toLowerCase() === cn.toLowerCase());
+      if (cat === undefined) return void errs.push(`Row ${line}: category "${cn}" not found in this budget`);
+      const key = `${date}|${amount}|${label ?? ""}|${cat?.id ?? ""}`; if (seen.has(key)) return void dup++; seen.add(key);
+      ok.push({ category_id: cat?.id ?? null, label, amount, spent_on: date }); });
+    setPrev({ ok, dup, errs });
+  };
+  const doImport = async () => {
+    if (!prev) return; for (let i = 0; i < prev.ok.length; i += 200) {
+      const { error } = await supabase.from("expenses").insert(prev.ok.slice(i, i + 200).map(r => ({ ...r, budget_id: sel })));
+      if (error) return setNote(error.message); }
+    setNote(`Imported ${prev.ok.length} expenses.`); setPrev(null); await load(); onChanged?.();
+  };
   const sum = (xs: { amount: number }[]) => xs.reduce((t, x) => t + Number(x.amount), 0);
   const exportCsv = () => {
     const name = (e: E) => cs.find(c => c.id === e.category_id)?.name ?? "";
@@ -52,6 +91,13 @@ export default function Reports() {
           return <div key={c.id} className="text-sm"><div className="flex justify-between"><span>{c.name}</span><span className={a > c.amount ? "text-red-400" : ""}>{fmt(a)} / {fmt(c.amount)}</span></div>
             <div className="relative h-2 rounded bg-white/10" role="img" aria-label={`${c.name}: spent ${fmt(a)} of ${fmt(c.amount)}`}><div className="absolute h-2 rounded bg-white/25" style={{ width: (c.amount / max) * 100 + "%" }} /><div className={`absolute h-2 rounded ${a > c.amount ? "bg-red-500" : "bg-gold"}`} style={{ width: (a / max) * 100 + "%" }} /></div></div>; })}
         {unpl > 0 && <p className="text-sm text-orange-400">⚠ Unplanned: {fmt(unpl)}</p>}</div>
+      <div className="surface space-y-2 rounded-3xl p-4 text-sm"><h3 className="font-semibold">Import CSV into “{bs.find(b => b.id === sel)?.name}”</h3>
+        <p className="text-gray-400">Columns: Date (YYYY-MM-DD), Amount, Category, Note. Blank category = unplanned. Duplicates are skipped.</p>
+        <input type="file" accept=".csv,text/csv" aria-label="CSV file" onChange={e => { onFile(e.target.files?.[0]); e.target.value = ""; }} />
+        {prev && <div className="space-y-1"><p>{prev.ok.length} ready · {prev.dup} duplicates skipped · {prev.errs.length} with errors</p>
+          {prev.errs.slice(0, 5).map(x => <p key={x} className="text-red-400">{x}</p>)}{prev.errs.length > 5 && <p className="text-gray-400">…and {prev.errs.length - 5} more</p>}
+          {prev.ok.length > 0 && <button className="rounded-xl bg-gold px-4 py-2 font-semibold text-black" onClick={doImport}>Import {prev.ok.length} rows</button>}</div>}
+        {note && <p role="status" className="text-yellow-300">{note}</p>}</div>
     </section>
   );
 }

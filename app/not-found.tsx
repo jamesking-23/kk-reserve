@@ -1,0 +1,1 @@
+export default function NotFound() { return <main className="mx-auto max-w-sm p-10 text-center"><h1 className="gold-text text-3xl font-extrabold">kkingg reserves</h1><p className="mt-4">That page doesn't exist.</p><a className="mt-4 inline-block underline" href="/">Back to the app</a></main>; }

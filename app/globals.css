@@ -14,3 +14,16 @@ body::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;
 @media (prefers-reduced-transparency:reduce),(prefers-contrast:more){.glass,.glass-strong{background:#1b1b21;backdrop-filter:none;-webkit-backdrop-filter:none;border-color:rgb(255 255 255/.5)}}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+.text-yellow-400{color:var(--accent)}
+html[data-theme=light] body{background:#f6f3ea;color:#18181b}
+html[data-theme=light] body::before{background:radial-gradient(40% 35% at 15% 10%,rgb(255 200 0/.25),transparent),radial-gradient(35% 30% at 90% 30%,rgb(140 90 255/.1),transparent)}
+html[data-theme=light]{--glass-bg:rgb(255 255 255/.65);--glass-border:rgb(0 0 0/.14)}
+html[data-theme=light] .glass{box-shadow:inset 0 1px 0 rgb(255 255 255/.9),0 8px 24px rgb(0 0 0/.08)}
+html[data-theme=light] .glass-strong{background:rgb(255 255 255/.88);box-shadow:inset 0 1px 0 #fff,0 8px 28px rgb(0 0 0/.15)}
+html[data-theme=light] .surface{background:rgb(0 0 0/.04);border-color:rgb(0 0 0/.08)}
+html[data-theme=light] .bg-white\/5,html[data-theme=light] .bg-white\/10{background:rgb(0 0 0/.05)}
+html[data-theme=light] .text-gray-300,html[data-theme=light] .text-gray-400{color:#52525b}
+html[data-theme=light] .text-gray-500{color:#71717a}
+html[data-theme=light] .text-yellow-400{color:color-mix(in srgb,var(--accent) 55%,#000)}
+html[data-theme=light] .text-green-400{color:#15803d}html[data-theme=light] .text-red-400,html[data-theme=light] .text-red-300{color:#b91c1c}html[data-theme=light] .text-orange-400{color:#c2410c}
+html[data-theme=light] .hover\:bg-white\/10:hover{background:rgb(0 0 0/.07)}
