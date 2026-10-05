@@ -1,28 +1,26 @@
 "use client";
-import { useEffect, useState, useCallback, ReactNode } from "react";
+import { useEffect, useState, useCallback, createElement, ComponentType } from "react";
+import { Home as HomeIcon, Utensils, Bus, Smartphone, ShoppingBag, CreditCard, AlertTriangle, Banknote, Wallet, TrendingUp, X, LayoutGrid, SlidersHorizontal, Activity, Landmark, Receipt, Target, Calculator, BarChart3, Globe, Settings } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/lib/supabase";
 import Avatar, { resizeImage } from "@/components/Avatar";
-import { fmt, parseMoney, groupDigits } from "@/lib/money";
+import { fmt, parseMoney, groupDigits, setDisplay } from "@/lib/money";
+import { useRates, convert, COUNTRIES } from "@/lib/fx";
+import { healthScore } from "@/lib/finance";
+import { CashFlow, DebtHub, Wealth, Planning, Region } from "@/components/Finance";
 import Reserves from "@/components/Reserves";
 import Reports from "@/components/Reports";
 import { statusOf } from "@/lib/budget";
 import { Stat, AreaChart, Donut, PALETTE, UNPLANNED } from "@/components/Charts";
 
-type Budget = { id: string; name: string; starting_balance: number; archived?: boolean; end_date?: string | null; created_at?: string };
+type Budget = { id: string; name: string; starting_balance: number; archived?: boolean; start_date?: string | null; end_date?: string | null; created_at?: string };
 const ACCENTS = ["#FFD700", "#A78BFA", "#FFB020", "#34D399", "#38BDF8", "#FB7185"];
 const dayKey = (d: Date) => d.toISOString().slice(0, 10);
 const lastDays = (n: number) => Array.from({ length: n }, (_, i) => dayKey(new Date(Date.now() - (n - 1 - i) * 864e5)));
-const emojiFor = (n: string) => /rent|house|housing/i.test(n) ? "🏠" : /food|eat|lunch|dinner|coffee|meal/i.test(n) ? "🍴" : /transport|fuel|boda|taxi|bus/i.test(n) ? "🚌" : /airtime|data|phone/i.test(n) ? "📱" : /shop/i.test(n) ? "🛍️" : /unplanned/i.test(n) ? "⚠️" : "💳";
-const NAV = [["home", "Overview"], ["plan", "Plan"], ["reserves", "Reserves"], ["reports", "Reports"]] as const;
-const ICON: Record<string, ReactNode> = {
-  home: <><rect x="3" y="3" width="7" height="7" rx="2" /><rect x="14" y="3" width="7" height="7" rx="2" /><rect x="3" y="14" width="7" height="7" rx="2" /><rect x="14" y="14" width="7" height="7" rx="2" /></>,
-  plan: <path d="M4 6h16M4 12h16M4 18h10" />,
-  reserves: <><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="4" /></>,
-  reports: <path d="M5 20V10M12 20V4M19 20v-7" />,
-  settings: <><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2" /></>,
-};
-const Ico = ({ k }: { k: string }) => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden>{ICON[k]}</svg>;
+const iconFor = (n: string) => /rent|house|housing/i.test(n) ? HomeIcon : /food|eat|lunch|dinner|coffee|meal/i.test(n) ? Utensils : /transport|fuel|boda|taxi|bus/i.test(n) ? Bus : /airtime|data|phone/i.test(n) ? Smartphone : /shop/i.test(n) ? ShoppingBag : /unplanned/i.test(n) ? AlertTriangle : CreditCard;
+const NAV = [["home", "Overview"], ["plan", "Budgets"], ["cash", "Cash flow"], ["wealth", "Wealth"], ["debt", "Debt"], ["reserves", "Goals"], ["planning", "Planning"], ["reports", "Reports"], ["region", "Region"]] as const;
+const ICON: Record<string, ComponentType<{ size?: number; strokeWidth?: number }>> = { home: LayoutGrid, plan: SlidersHorizontal, cash: Activity, wealth: Landmark, debt: Receipt, reserves: Target, planning: Calculator, reports: BarChart3, region: Globe, settings: Settings };
+const Ico = ({ k, size = 22 }: { k: string; size?: number }) => { const I = ICON[k]; return <I size={size} strokeWidth={1.7} aria-hidden />; };
 const applyTheme = (t: string, a: string) => { const d = t === "system" ? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light") : t; document.documentElement.dataset.theme = d; document.documentElement.style.setProperty("--accent", a || "#FFD700"); localStorage.setItem("kk2-theme", t); localStorage.setItem("kk2-accent", a || ""); };
 type Cat = { id: string; name: string; amount: number };
 type Exp = { id: string; category_id: string | null; label: string | null; amount: number; spent_on: string; created_at?: string };
@@ -39,7 +37,7 @@ function GoldButton({ children, onClick }: { children: React.ReactNode; onClick:
   const [pop, setPop] = useState(false);
   return (
     <div className="relative">
-      <AnimatePresence>{pop && <motion.span initial={{ opacity: 1, y: 0 }} animate={{ opacity: 0, y: -28 }} exit={{ opacity: 0 }} className="absolute -top-2 left-1/2 text-2xl">💵</motion.span>}</AnimatePresence>
+      <AnimatePresence>{pop && <motion.span initial={{ opacity: 1, y: 0 }} animate={{ opacity: 0, y: -28 }} exit={{ opacity: 0 }} className="absolute -top-2 left-1/2 text-2xl"><Banknote size={24} /></motion.span>}</AnimatePresence>
       <motion.button whileTap={{ scale: 0.95 }} className="w-full rounded-2xl bg-gold px-4 py-3 font-semibold text-black shadow-[inset_0_1px_0_rgb(255_255_255/.5),0_6px_24px_rgb(255_215_0/.25)]"
         onClick={async () => { if (localStorage.getItem("kk-haptics") !== "off") navigator.vibrate?.(20); await onClick(); setPop(true); setTimeout(() => setPop(false), 900); }}>{children}</motion.button>
     </div>
@@ -125,7 +123,7 @@ function Dashboard() {
   const [uname, setUname] = useState("");
   const [ask, setAsk] = useState<null | { table: string; id: string }>(null);
   const [uid, setUid] = useState("");
-  const [tab, setTab] = useState<"home" | "plan" | "reserves" | "reports">("home");
+  const [tab, setTab] = useState<(typeof NAV)[number][0]>("home");
   const [theme, setTheme] = useState("light");
   const [rng, setRng] = useState(14);
   const [sv, setSv] = useState<{ saved: number; target: number; series: number[] }>({ saved: 0, target: 0, series: [] });
@@ -133,6 +131,13 @@ function Dashboard() {
   const [haptics, setHaptics] = useState(() => localStorage.getItem("kk-haptics") !== "off");
   const [danger, setDanger] = useState(false);
   const [typed, setTyped] = useState("");
+  const rt = useRates();
+  const [display, setDisplayCur] = useState(() => localStorage.getItem("kk2-display") || "UGX");
+  const [country, setCountry] = useState("");
+  const [profLoaded, setProfLoaded] = useState(false);
+  const [skipCountry, setSkipCountry] = useState(() => localStorage.getItem("kk2-country-skip") === "1");
+  const [snap, setSnap] = useState({ assets: 0, debt: 0 });
+  setDisplay(display, convert(1, "UGX", display, rt.rates));
   const say = (m: string, u?: () => Promise<void>) => { setToast(m); setUndo(u ? () => u : null); setTimeout(() => { setToast(""); setUndo(null); }, u ? 7000 : 2500); };
   const openNew = () => { setF({ ...blank, date: today() }); setSheet(true); };
   const openEdit = (e: Exp) => { setF({ id: e.id, cat: e.category_id ?? "", label: e.label ?? "", amt: groupDigits(String(e.amount)), date: e.spent_on }); setSheet(true); };
@@ -157,8 +162,9 @@ function Dashboard() {
       const { data: u } = await supabase.auth.getUser(); if (!u.user) return;
       setUid(u.user.id); setEmail(u.user.email ?? "");
       await supabase.from("profiles").upsert({ id: u.user.id }, { onConflict: "id", ignoreDuplicates: true }); // self-heal missing profile row
-      const { data } = await supabase.from("profiles").select("username,avatar_url,theme,accent").eq("id", u.user.id).single();
-      if (data) { setProf({ username: data.username, avatar_url: data.avatar_url }); setUname(data.username ?? ""); const t = localStorage.getItem("kk2-theme") ?? (data.theme && data.theme !== "dark" ? data.theme : "light"), a = localStorage.getItem("kk2-accent") || data.accent || "#FFD700"; setTheme(t); setAccent(a); applyTheme(t, a); }
+      const { data } = await supabase.from("profiles").select("username,avatar_url,theme,accent,country").eq("id", u.user.id).single();
+      if (data) { setCountry(data.country ?? ""); setProf({ username: data.username, avatar_url: data.avatar_url }); setUname(data.username ?? ""); const t = localStorage.getItem("kk2-theme") ?? (data.theme && data.theme !== "dark" ? data.theme : "light"), a = localStorage.getItem("kk2-accent") || data.accent || "#FFD700"; setTheme(t); setAccent(a); applyTheme(t, a); }
+      setProfLoaded(true);
     })();
   }, []);
   const saveName = async () => {
@@ -177,6 +183,8 @@ function Dashboard() {
       setProf(p => ({ ...p, avatar_url: url })); say("Photo updated");
     } catch (e: any) { say(e.message ?? "Upload failed"); }
   };
+  const chooseCountry = async (c: string) => { setCountry(c); if (uid) await supabase.from("profiles").update({ country: c }).eq("id", uid); };
+  const chooseDisplay = (c: string) => { setDisplayCur(c); localStorage.setItem("kk2-display", c); };
   const setLook = async (t: string, a: string) => { setTheme(t); setAccent(a); applyTheme(t, a); if (uid) await supabase.from("profiles").update({ theme: t, accent: a }).eq("id", uid); };
   const deleteAccount = async () => {
     await supabase.storage.from("avatars").remove([`${uid}/avatar.webp`]);
@@ -196,11 +204,12 @@ function Dashboard() {
     setProf(p => ({ ...p, avatar_url: null })); say("Photo removed");
   };
   const loadSavings = useCallback(async () => {
-    const [r, c] = await Promise.all([supabase.from("reserves").select("target_amount").eq("archived", false), supabase.from("reserve_contributions").select("amount,contributed_on")]);
+    const [r, c, a, l] = await Promise.all([supabase.from("reserves").select("target_amount").eq("archived", false), supabase.from("reserve_contributions").select("amount,contributed_on"), supabase.from("assets").select("value,currency"), supabase.from("liabilities").select("balance")]);
+    setSnap({ assets: (a.data ?? []).reduce((t, x) => t + convert(Number(x.value), x.currency, "UGX", rt.rates), 0), debt: (l.data ?? []).reduce((t, x) => t + Number(x.balance), 0) });
     const rows = c.data ?? [], keys = lastDays(14), before = rows.filter(x => x.contributed_on < keys[0]).reduce((t, x) => t + Number(x.amount), 0);
     let run = before; const series = keys.map(k => (run += rows.filter(x => x.contributed_on === k).reduce((t, x) => t + Number(x.amount), 0)));
     setSv({ saved: rows.reduce((t, x) => t + Number(x.amount), 0), target: (r.data ?? []).reduce((t, x) => t + Number(x.target_amount), 0), series });
-  }, []);
+  }, [rt.rates]);
   useEffect(() => { if (tab === "home") loadSavings(); }, [tab, loadSavings]);
   useEffect(() => { loadBudgets(); }, [loadBudgets]);
   useEffect(() => { loadDetail(); }, [loadDetail]);
@@ -249,11 +258,18 @@ function Dashboard() {
   const chart = lastDays(rng).map(k => ({ label: new Date(k + "T00:00:00").toLocaleDateString("en-UG", { day: "numeric", month: "short" }), value: spend(k) }));
   const slices = [...cats.map((c, i) => ({ label: c.name, value: exps.filter(e => e.category_id === c.id).reduce((t, e) => t + Number(e.amount), 0), color: PALETTE[i % PALETTE.length] })), { label: "Unplanned", value: unplanned, color: UNPLANNED }].filter(x => x.value > 0);
   const recent = [...exps].sort((a, c) => c.spent_on.localeCompare(a.spent_on)).slice(0, 5);
+  const k30 = lastDays(30), monthlySpend = k30.reduce((t, k) => t + spend(k), 0);
+  const hs = healthScore({ status, saved: sv.saved, monthlySpend, debt: snap.debt, assets: snap.assets });
+  const sum60 = lastDays(60).reduce((t, k) => t + spend(k), 0), firstDay = exps.reduce((m2, e) => (e.spent_on < m2 ? e.spent_on : m2), "9999-99-99");
+  const span60 = firstDay === "9999-99-99" ? 1 : Math.min(60, Math.max(1, Math.ceil((Date.now() - new Date(firstDay + "T00:00:00").getTime()) / 864e5) + 1)), avgDaily = sum60 / span60;
+  const startD = b?.start_date ? new Date(b.start_date + "T00:00:00") : (() => { const d = new Date(b?.created_at ?? Date.now()); return new Date(d.getFullYear(), d.getMonth(), 1); })();
+  const periodDays = Math.max(1, Math.ceil((endD.getTime() - startD.getTime()) / 864e5)), elapsed = Math.min(periodDays, Math.max(1, Math.ceil((Date.now() - startD.getTime()) / 864e5)));
+  const burn = spent / elapsed, target = planned / periodDays, expectedSoFar = planned * (elapsed / periodDays);
   const hr = new Date().getHours(), hello = hr < 12 ? "Good morning" : hr < 17 ? "Good afternoon" : "Good evening";
   const shown = prof.username || email.split("@")[0] || "me";
 
   return (
-    <main className="mx-auto max-w-lg space-y-5 p-4 pb-32 md:max-w-6xl md:pb-10 md:pl-[17.5rem]">
+    <main className="mx-auto max-w-lg space-y-5 p-4 pb-32 md:max-w-7xl md:pb-10 md:pl-24 xl:pl-[17.5rem]">
       <header className="relative flex items-center justify-between"><span className="md:hidden"><Logo /></span><span className="hidden md:block" />
         <button aria-label="Account menu" aria-expanded={menu} className="rounded-full ring-2 ring-yellow-400/60" onClick={() => setMenu(!menu)}><Avatar url={prof.avatar_url} name={shown} size={44} /></button>
         {menu && <div role="menu" className="glass-strong absolute right-0 top-14 z-20 w-64 space-y-1 rounded-3xl p-3" onKeyDown={e => e.key === "Escape" && setMenu(false)}>
@@ -264,35 +280,19 @@ function Dashboard() {
       {(tab === "home" || tab === "plan") && budgets.length > 0 && <div className="space-y-2"><select className={input} aria-label="Budget" value={bid} onChange={e => setBid(e.target.value)}>{budgets.map(x => <option key={x.id} value={x.id}>{x.name}{x.archived ? " (archived)" : ""}</option>)}</select>
         {tab === "plan" && b && <div className="flex gap-2 text-sm"><button className="glass flex-1 rounded-xl p-2" onClick={duplicateBudget}>Duplicate</button><button className="glass flex-1 rounded-xl p-2" onClick={archiveBudget}>{b.archived ? "Unarchive" : "Archive"}</button></div>}</div>}
       {tab === "home" && !b && <div className="surface space-y-3 rounded-3xl p-5 text-center"><p>No budget yet.</p><button className="rounded-2xl bg-gold px-4 py-2 font-semibold text-black" onClick={() => setTab("plan")}>Create your first budget</button></div>}
-      {tab === "home" && <div><h2 className="text-2xl font-bold tracking-tight md:text-3xl">{hello}, {shown} 👋</h2><p className="text-sm text-gray-400">Here's what's happening with your finances today.</p></div>}
+      {tab === "home" && <div><h2 className="text-2xl font-bold tracking-tight md:text-3xl">{hello}, {shown}</h2><p className="text-sm text-gray-400">Here's what's happening with your finances today.</p></div>}
       {tab === "home" && b && <>
-        <section aria-label="Overview" className="grid gap-4 sm:grid-cols-3">
-          <Stat title="Remaining balance" value={money(remaining)} icon="👛" tint="from-violet-300/70 to-indigo-200/70" series={balSeries} color="#8B5CF6" foot={<span className={`font-medium ${color}`}>● {status}</span>} />
-          <Stat title="Total spent" value={money(spent)} icon="🛍️" tint="from-pink-300/70 to-rose-200/70" series={d14} color="#F472B6" foot={<span className="text-gray-400">{planned > 0 ? `${Math.round((spent / planned) * 100)}% of planned` : "No plan yet"}</span>} />
-          <Stat title="Savings progress" value={money(sv.saved)} icon="📈" tint="from-emerald-300/70 to-teal-200/70" series={sv.series} color="#34D399" foot={<span className="text-gray-400">{sv.target > 0 ? `${Math.min(100, Math.round((sv.saved / sv.target) * 100))}% of ${money(sv.target)}` : "No reserves yet"}</span>} />
+        <section aria-label="Key figures" className="grid gap-4 sm:grid-cols-3">
+          <Stat title="Remaining balance" value={money(remaining)} icon={<Wallet size={22} />} tint="from-violet-300/70 to-indigo-200/70" series={balSeries} color="#8B5CF6" foot={<span className={`inline-flex items-center gap-1.5 font-medium ${color}`}><span className="inline-block h-2 w-2 rounded-full bg-current" />{status}</span>} />
+          <Stat title="Total spent" value={money(spent)} icon={<ShoppingBag size={22} />} tint="from-pink-300/70 to-rose-200/70" series={d14} color="#F472B6" foot={<span className="text-gray-400">{planned > 0 ? `${Math.round((spent / planned) * 100)}% of planned` : "No plan yet"}</span>} />
+          <Stat title="Savings progress" value={money(sv.saved)} icon={<TrendingUp size={22} />} tint="from-emerald-300/70 to-teal-200/70" series={sv.series} color="#34D399" foot={<span className="text-gray-400">{sv.target > 0 ? `${Math.min(100, Math.round((sv.saved / sv.target) * 100))}% of ${money(sv.target)}` : "No reserves yet"}</span>} />
         </section>
         <p className="text-sm text-gray-400">Starting {money(start)} · Planned {money(planned)}</p>
-        <section className="grid gap-4 lg:grid-cols-5">
-          <div className="surface rounded-3xl p-4 lg:col-span-3"><div className="mb-2 flex items-center justify-between"><h3 className="font-semibold">Spending overview</h3>
-            <select className="glass rounded-xl px-3 py-1.5 text-sm" aria-label="Chart range" value={rng} onChange={e => setRng(Number(e.target.value))}><option value={7}>7 days</option><option value={14}>14 days</option><option value={30}>30 days</option></select></div>
-            <AreaChart data={chart} /></div>
-          <div className="surface rounded-3xl p-4 lg:col-span-2"><h3 className="mb-2 font-semibold">Expenses by category</h3>
-            <Donut slices={slices} total={spent} />
-            <ul className="mt-3 space-y-1.5 text-sm">{slices.length === 0 && <li className="text-gray-400">No spending yet.</li>}{slices.map(x => <li key={x.label} className="flex items-center gap-2"><span aria-hidden className="h-2.5 w-2.5 rounded-full" style={{ background: x.color }} /><span className="flex-1 truncate">{x.label}</span><span className="font-medium">{money(x.value)}</span><span className="w-10 text-right text-gray-400">{Math.round((x.value / spent) * 100)}%</span></li>)}</ul></div>
-        </section>
-        <section className="grid gap-4 lg:grid-cols-5">
-          <div className="surface space-y-1 rounded-3xl p-4 text-sm lg:col-span-2" aria-label="Insights"><h3 className="mb-1 text-base font-semibold">Insights</h3>
-            {safe !== null && <p>Safe to spend today: <b>{money(safe)}</b></p>}
-            {unplanned > 0 && <button className="w-full rounded-xl border border-orange-400/60 bg-orange-400/10 p-2 text-left text-orange-400" onClick={() => { setFcat("__u"); document.getElementById("history")?.scrollIntoView({ behavior: "smooth" }); }}>⚠ Unplanned leaks: {money(unplanned)} · tap to see them</button>}
-            {tips.map(t => <p key={t} className="text-gray-300">• {t}</p>)}</div>
-          <div className="surface rounded-3xl p-4 lg:col-span-3"><div className="mb-1 flex items-center justify-between"><h3 className="font-semibold">Recent transactions</h3><button className="glass rounded-xl px-3 py-1.5 text-sm" onClick={() => document.getElementById("history")?.scrollIntoView({ behavior: "smooth" })}>View all</button></div>
-            {recent.length === 0 && <p className="text-sm text-gray-400">Nothing yet. Tap + to add your first expense.</p>}
-            {recent.map(e => { const ci = cats.findIndex(c => c.id === e.category_id), cn = ci >= 0 ? cats[ci].name : "Unplanned";
-              return <button key={e.id} className="flex w-full items-center gap-3 rounded-2xl p-2 text-left hover:bg-white/10" onClick={() => openEdit(e)}>
-                <span aria-hidden className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-lg" style={{ background: (ci >= 0 ? PALETTE[ci % PALETTE.length] : UNPLANNED) + "40" }}>{emojiFor(cn)}</span>
-                <span className="min-w-0 flex-1"><span className="block truncate font-medium">{e.label || cn}</span><span className="block text-xs text-gray-400">{dayLabel(e.spent_on)} · {cn}</span></span>
-                <span className="font-semibold text-red-400">-{money(e.amount)}</span></button>; })}</div>
-        </section>
+        <div className="grid gap-4 md:grid-cols-3">
+          <div className="space-y-4 md:col-span-2">
+            <div className="surface rounded-3xl p-4"><div className="mb-2 flex items-center justify-between"><h3 className="font-semibold">Spending overview</h3>
+              <select className="glass rounded-xl px-3 py-1.5 text-sm" aria-label="Chart range" value={rng} onChange={e => setRng(Number(e.target.value))}><option value={7}>7 days</option><option value={14}>14 days</option><option value={30}>30 days</option></select></div>
+              <AreaChart data={chart} /></div>
         <section className="space-y-2"><h2 id="history" className="font-semibold text-yellow-400">History</h2>
           <div className="flex gap-2"><input className={input} type="search" aria-label="Search expenses" placeholder="Search" value={q} onChange={e => { setQ(e.target.value); setLimit(20); }} />
             <select className={input} aria-label="Filter expenses" value={fcat} onChange={e => { setFcat(e.target.value); setLimit(20); }}><option value="">All</option><option value="__u">Unplanned only</option>{cats.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
@@ -306,18 +306,36 @@ function Dashboard() {
               {hit.length === 0 && <p className="text-gray-500">{exps.length ? "No matches." : "No expenses yet. Tap + to add your first."}</p>}
               {groups.map(([d, rows]) => <div key={d} className="space-y-1"><p className="pt-2 text-xs uppercase tracking-wide text-gray-400">{dayLabel(d)} · {money(rows.reduce((t, e) => t + Number(e.amount), 0))}</p>
                 {rows.map(e => <div key={e.id} className={`flex justify-between rounded-lg p-2 text-sm ${e.category_id ? "bg-white/5" : "border border-orange-400/50 bg-orange-400/10"}`}>
-                  <button className="min-w-0 truncate py-1 text-left" aria-label="Edit expense" onClick={() => openEdit(e)}>{e.category_id ? cats.find(c => c.id === e.category_id)?.name : "⚠ Unplanned"} {e.label}</button>
-                  <span>{money(e.amount)} <button aria-label="Delete expense" className="p-1" onClick={() => del("expenses", e.id)}>✕</button></span></div>)}</div>)}
+                  <button className="min-w-0 truncate py-1 text-left" aria-label="Edit expense" onClick={() => openEdit(e)}>{e.category_id ? cats.find(c => c.id === e.category_id)?.name : <><AlertTriangle size={14} className="mr-1 inline" />Unplanned</>} {e.label}</button>
+                  <span>{money(e.amount)} <button aria-label="Delete expense" className="p-1" onClick={() => del("expenses", e.id)}><X size={16} /></button></span></div>)}</div>)}
               {hit.length > limit && <button className="glass w-full rounded-2xl p-3" onClick={() => setLimit(limit + 20)}>Show more</button>}
             </>; })()}
         </section>
+          </div>
+          <aside className="space-y-4" aria-label="Summary">
+            <div className="surface rounded-3xl p-4"><h3 className="font-semibold">Financial health</h3><p className="mt-1 text-3xl font-bold tracking-tight">{hs.score}<span className="text-base font-medium text-gray-400"> / 100</span></p>
+              <div className="mt-2 space-y-2 text-sm">{hs.parts.map(x => <div key={x.label}><div className="flex justify-between text-gray-400"><span>{x.label}</span><span>{x.value}/{x.max}</span></div><div className="h-1.5 rounded bg-white/10"><div className="h-1.5 rounded bg-gold" style={{ width: (x.value / x.max) * 100 + "%" }} /></div></div>)}</div></div>
+            <div className="surface space-y-1 rounded-3xl p-4 text-sm" aria-label="Insights"><h3 className="mb-1 text-base font-semibold">Pace and insights</h3>
+              <p>Burn rate: <b>{money(burn)}</b>/day vs target <b>{money(target)}</b>/day</p>
+              <p className={spent > expectedSoFar ? "text-red-400" : "text-green-400"}>{spent > expectedSoFar ? `${money(spent - expectedSoFar)} ahead of pace for this point in the period.` : `${money(expectedSoFar - spent)} under pace for this point in the period.`}</p>
+              {safe !== null && <p>Safe to spend today: <b>{money(safe)}</b></p>}
+              {unplanned > 0 && <button className="flex w-full items-center gap-2 rounded-xl border border-orange-400/60 bg-orange-400/10 p-2 text-left text-orange-400" onClick={() => { setFcat("__u"); document.getElementById("history")?.scrollIntoView({ behavior: "smooth" }); }}><AlertTriangle size={16} className="shrink-0" />Unplanned leaks: {money(unplanned)}</button>}
+              {tips.map(t => <p key={t} className="text-gray-300">• {t}</p>)}</div>
+            <div className="surface rounded-3xl p-4"><h3 className="mb-2 font-semibold">Expenses by category</h3><Donut slices={slices} total={spent} />
+              <ul className="mt-3 space-y-1.5 text-sm">{slices.length === 0 && <li className="text-gray-400">No spending yet.</li>}{slices.map(x => <li key={x.label} className="flex items-center gap-2"><span aria-hidden className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: x.color }} /><span className="flex-1 truncate">{x.label}</span><span className="font-medium">{money(x.value)}</span><span className="w-10 text-right text-gray-400">{Math.round((x.value / spent) * 100)}%</span></li>)}</ul></div>
+            <div className="surface rounded-3xl p-4"><div className="mb-1 flex items-center justify-between"><h3 className="font-semibold">Recent transactions</h3><button className="glass rounded-xl px-3 py-1.5 text-sm" onClick={() => document.getElementById("history")?.scrollIntoView({ behavior: "smooth" })}>View all</button></div>
+              {recent.length === 0 && <p className="text-sm text-gray-400">Nothing yet. Use the add button to log your first expense.</p>}
+              {recent.map(e => { const ci = cats.findIndex(c => c.id === e.category_id), cn = ci >= 0 ? cats[ci].name : "Unplanned";
+                return <button key={e.id} className="flex w-full items-center gap-3 rounded-2xl p-2 text-left hover:bg-white/10" onClick={() => openEdit(e)}>
+                  <span aria-hidden className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl" style={{ background: (ci >= 0 ? PALETTE[ci % PALETTE.length] : UNPLANNED) + "40" }}>{createElement(iconFor(cn), { size: 20 })}</span>
+                  <span className="min-w-0 flex-1"><span className="block truncate font-medium">{e.label || cn}</span><span className="block text-xs text-gray-400">{dayLabel(e.spent_on)} · {cn}</span></span>
+                  <span className="text-sm font-semibold text-red-400">-{money(e.amount)}</span></button>; })}</div>
+          </aside>
+        </div>
       </>}
-      {tab === "plan" && <>
-      <section className="glass space-y-2 rounded-3xl p-4"><h2 className="font-semibold text-yellow-400">New budget</h2>
-        <input className={input} aria-label="Budget name" value={nb.name} placeholder="Name (e.g. October)" onChange={e => setNb({ ...nb, name: e.target.value })} />
-        <input className={input} aria-label="Starting balance" value={nb.bal} inputMode="numeric" placeholder="Starting balance" onChange={e => setNb({ ...nb, bal: e.target.value })} />
-        <GoldButton onClick={async () => { const v = parseMoney(nb.bal); if (!nb.name.trim() || v === null) return say("Enter a name and a valid balance."); const { error } = await supabase.from("budgets").insert({ name: nb.name.trim(), starting_balance: v }); if (error) say(error.message); else { say("Budget created"); setNb({ name: "", bal: "" }); setBid(""); loadBudgets(); } }}>Create</GoldButton></section>
-        {b && <>
+      {tab === "plan" && <div className="grid gap-4 md:grid-cols-3">
+        <div className="space-y-4 md:col-span-2">
+        {b ? <>
         <section className="space-y-3"><h2 className="font-semibold text-yellow-400">Planned expenses</h2>
           {cats.length === 0 && <p className="text-gray-500">No categories yet. Add your first below.</p>}
           {cats.map(c => { const s = exps.filter(e => e.category_id === c.id).reduce((t, e) => t + Number(e.amount), 0); const pct = Math.min(100, (s / c.amount) * 100 || 0);
@@ -326,8 +344,23 @@ function Dashboard() {
               <button className="py-2 pr-4 text-xs text-gray-400" onClick={() => setEc({ id: c.id, name: c.name, amt: groupDigits(String(c.amount)) })}>edit</button><button className="py-2 text-xs text-gray-400" onClick={() => del("planned_categories", c.id)}>delete</button></div>; })}
           <div className="flex gap-2"><input className={input} aria-label="Category name" value={nc.name} placeholder="Category" onChange={e => setNc({ ...nc, name: e.target.value })} /><input className={input} aria-label="Category amount" value={nc.amt} inputMode="numeric" placeholder="Amount" onChange={e => setNc({ ...nc, amt: e.target.value })} /></div>
           <GoldButton onClick={async () => { const v = parseMoney(nc.amt); if (!nc.name.trim() || v === null) return say("Enter a name and a valid amount."); const { error } = await supabase.from("planned_categories").insert({ budget_id: bid, name: nc.name.trim(), amount: v }); if (error) say(error.message); else { setNc({ name: "", amt: "" }); loadDetail(); } }}>Add category</GoldButton></section>
-        </>}
-      </>}
+        </> : <div className="surface rounded-3xl p-5 text-sm text-gray-400">Create a budget to start planning categories.</div>}
+        </div>
+        <aside className="space-y-4">
+      <section className="glass space-y-2 rounded-3xl p-4"><h2 className="font-semibold text-yellow-400">New budget</h2>
+        <input className={input} aria-label="Budget name" value={nb.name} placeholder="Name (e.g. October)" onChange={e => setNb({ ...nb, name: e.target.value })} />
+        <input className={input} aria-label="Starting balance" value={nb.bal} inputMode="numeric" placeholder="Starting balance" onChange={e => setNb({ ...nb, bal: e.target.value })} />
+        <GoldButton onClick={async () => { const v = parseMoney(nb.bal); if (!nb.name.trim() || v === null) return say("Enter a name and a valid balance."); const { error } = await supabase.from("budgets").insert({ name: nb.name.trim(), starting_balance: v }); if (error) say(error.message); else { say("Budget created"); setNb({ name: "", bal: "" }); setBid(""); loadBudgets(); } }}>Create</GoldButton></section>
+          {b && <div className="surface space-y-1 rounded-3xl p-4 text-sm"><h3 className="font-semibold">Budget frameworks</h3>
+            <p>Zero-based: unassigned money <b>{money(start - planned)}</b>{start - planned === 0 ? " (fully assigned)" : start - planned < 0 ? " (over-assigned)" : ""}</p>
+            <p className="text-gray-400">50/30/20 targets of {money(start)}: needs {money(start * 0.5)}, wants {money(start * 0.3)}, savings {money(start * 0.2)}.</p></div>}
+        </aside>
+      </div>}
+      {tab === "cash" && <CashFlow Btn={GoldButton} say={say} balance={remaining} avgDaily={avgDaily} />}
+      {tab === "wealth" && <Wealth Btn={GoldButton} say={say} rates={rt.rates} />}
+      {tab === "debt" && <DebtHub Btn={GoldButton} say={say} />}
+      {tab === "planning" && <Planning />}
+      {tab === "region" && <Region rates={rt.rates} live={rt.live} country={country} onCountry={chooseCountry} display={display} onDisplay={chooseDisplay} say={say} />}
       {tab === "reports" && <Reports onChanged={loadDetail} />}
       {tab === "reserves" && <Reserves Btn={GoldButton} input={input} say={say} />}
       {ask && <div className="fixed inset-0 z-30 flex items-end justify-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-label="Confirm delete" onKeyDown={e => e.key === "Escape" && setAsk(null)}>
@@ -353,10 +386,10 @@ function Dashboard() {
       {sheet && (() => { const c = cats.find(x => x.id === f.cat); const v = parseMoney(f.amt) ?? 0; const used = c ? exps.filter(e => e.category_id === c.id && e.id !== f.id).reduce((t, e) => t + Number(e.amount), 0) : 0;
         const left = c ? c.amount - used - v : 0; const recent = [...cats].sort((a, b2) => { const i = exps.findIndex(e => e.category_id === a.id), j = exps.findIndex(e => e.category_id === b2.id); return (i < 0 ? 1e9 : i) - (j < 0 ? 1e9 : j); });
         return <div className="fixed inset-0 z-30 flex items-end justify-center bg-black/50 p-3" role="dialog" aria-modal="true" aria-label={f.id ? "Edit expense" : "Add expense"} onKeyDown={e => e.key === "Escape" && setSheet(false)}>
-          <div className="glass-strong max-h-[92vh] w-full max-w-lg space-y-3 overflow-y-auto rounded-3xl p-5"><div className="flex items-center justify-between"><h2 className="font-semibold text-yellow-400">{f.id ? "Edit expense" : "Add expense"}</h2><button aria-label="Close" className="p-2 text-gray-400" onClick={() => setSheet(false)}>✕</button></div>
+          <div className="glass-strong max-h-[92vh] w-full max-w-lg space-y-3 overflow-y-auto rounded-3xl p-5"><div className="flex items-center justify-between"><h2 className="font-semibold text-yellow-400">{f.id ? "Edit expense" : "Add expense"}</h2><button aria-label="Close" className="p-2 text-gray-400" onClick={() => setSheet(false)}><X size={18} /></button></div>
             <input autoFocus aria-label="Amount" inputMode="decimal" placeholder="0" value={f.amt} onChange={e => setF({ ...f, amt: groupDigits(e.target.value) })} className="w-full bg-transparent text-center text-5xl font-bold outline-none placeholder:text-white/20" />
             <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Category">
-              <button role="radio" aria-checked={!f.cat} className={`rounded-full px-4 py-2 text-sm ${!f.cat ? "bg-orange-400 text-black" : "glass"}`} onClick={() => setF({ ...f, cat: "" })}>⚠ Unplanned</button>
+              <button role="radio" aria-checked={!f.cat} className={`rounded-full px-4 py-2 text-sm ${!f.cat ? "bg-orange-400 text-black" : "glass"}`} onClick={() => setF({ ...f, cat: "" })}><AlertTriangle size={14} className="mr-1 inline" />Unplanned</button>
               {recent.map(x => <button key={x.id} role="radio" aria-checked={f.cat === x.id} className={`rounded-full px-4 py-2 text-sm ${f.cat === x.id ? "bg-gold text-black" : "glass"}`} onClick={() => setF({ ...f, cat: x.id })}>{x.name}</button>)}</div>
             <p className={`min-h-5 text-sm ${c && left < 0 ? "text-red-400" : "text-gray-300"}`} aria-live="polite">{v > 0 && (c ? (left >= 0 ? `After this: ${money(left)} left in ${c.name}` : `This puts ${c.name} over by ${money(-left)}`) : "Unplanned: this comes straight out of your balance")}</p>
             <input className={input} aria-label="Note" placeholder="Note (optional)" value={f.label} onChange={e => setF({ ...f, label: e.target.value })} />
@@ -368,13 +401,18 @@ function Dashboard() {
           <input autoFocus className={input} aria-label="Category name" value={ec.name} onChange={e => setEc({ ...ec, name: e.target.value })} />
           <input className={input} aria-label="Category amount" inputMode="numeric" value={ec.amt} onChange={e => setEc({ ...ec, amt: groupDigits(e.target.value) })} />
           <GoldButton onClick={saveCat}>Save</GoldButton><button className="w-full p-2 text-gray-400" onClick={() => setEc(null)}>Cancel</button></div></div>}
-      <nav aria-label="Main" className="glass fixed bottom-3 left-1/2 z-20 flex -translate-x-1/2 gap-1 rounded-full p-1.5 md:hidden" style={{ marginBottom: "env(safe-area-inset-bottom)" }}>
-        {NAV.map(([k, l]) => <button key={k} aria-current={tab === k ? "page" : undefined} className={`flex min-h-12 flex-col items-center justify-center rounded-full px-4 text-[11px] font-medium ${tab === k ? "bg-gold text-black" : ""}`} onClick={() => setTab(k)}><Ico k={k} />{l}</button>)}</nav>
-      <aside aria-label="Sidebar" className="glass fixed bottom-4 left-4 top-4 z-20 hidden w-60 flex-col rounded-3xl p-4 md:flex">
-        <div className="mb-6 px-2"><Logo /><p className="text-xs text-gray-400">Manage wealth beautifully</p></div>
-        <nav aria-label="Main" className="space-y-1">{NAV.map(([k, l]) => <button key={k} aria-current={tab === k ? "page" : undefined} style={tab === k ? { background: "color-mix(in srgb, var(--accent) 30%, transparent)" } : undefined} className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left font-medium hover:bg-white/10" onClick={() => setTab(k)}><Ico k={k} />{l}</button>)}</nav>
-        <button className="glass mt-auto flex items-center gap-3 rounded-2xl p-3 text-left" onClick={() => setSettings(true)}><Avatar url={prof.avatar_url} name={shown} size={36} /><span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold">{shown}</span><span className="block text-xs text-gray-400">Profile &amp; settings</span></span><Ico k="settings" /></button>
+      <nav aria-label="Main" className="glass fixed bottom-3 left-1/2 z-20 flex max-w-[94vw] -translate-x-1/2 gap-1 overflow-x-auto rounded-full p-1.5 md:hidden" style={{ marginBottom: "env(safe-area-inset-bottom)" }}>
+        {NAV.map(([k, l]) => <button key={k} aria-current={tab === k ? "page" : undefined} className={`flex min-h-12 shrink-0 flex-col items-center justify-center rounded-full px-3 text-[11px] font-medium ${tab === k ? "bg-gold text-black" : ""}`} onClick={() => setTab(k)}><Ico k={k} size={20} />{l}</button>)}</nav>
+      <aside aria-label="Sidebar" className="glass fixed bottom-4 left-4 top-4 z-20 hidden w-16 flex-col rounded-3xl p-2 md:flex xl:w-60 xl:p-4">
+        <div className="mb-4 hidden px-2 xl:block"><Logo /><p className="text-xs text-gray-400">Personal finance suite</p></div>
+        <div className="mb-4 mt-1 text-center xl:hidden"><span className="gold-text text-xl font-extrabold">kk</span></div>
+        <nav aria-label="Main" className="space-y-1 overflow-y-auto">{NAV.map(([k, l]) => <button key={k} title={l} aria-label={l} aria-current={tab === k ? "page" : undefined} style={tab === k ? { background: "color-mix(in srgb, var(--accent) 30%, transparent)" } : undefined} className="flex w-full items-center justify-center gap-3 rounded-2xl px-3 py-3 text-left font-medium hover:bg-white/10 xl:justify-start" onClick={() => setTab(k)}><Ico k={k} /><span className="hidden xl:inline">{l}</span></button>)}</nav>
+        <button aria-label="Profile and settings" className="glass mt-auto flex items-center justify-center gap-3 rounded-2xl p-2 text-left xl:justify-start xl:p-3" onClick={() => setSettings(true)}><Avatar url={prof.avatar_url} name={shown} size={36} /><span className="hidden min-w-0 flex-1 xl:block"><span className="block truncate text-sm font-semibold">{shown}</span><span className="block text-xs text-gray-400">Profile &amp; settings</span></span><span className="hidden xl:block"><Ico k="settings" /></span></button>
       </aside>
+      {profLoaded && !country && !skipCountry && <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-label="Choose your country">
+        <div className="glass-strong w-full max-w-sm space-y-3 rounded-3xl p-5"><h2 className="flex items-center gap-2 font-semibold"><Globe size={18} />Where are you based?</h2><p className="text-sm text-gray-400">This sets regional context such as tax authority and mobile money options. You can change it any time under Region.</p>
+          <select className={input} aria-label="Country" defaultValue="" onChange={e => { if (e.target.value) chooseCountry(e.target.value); }}><option value="">Select a country</option>{COUNTRIES.map(x => <option key={x.code} value={x.code}>{x.name}</option>)}</select>
+          <button className="w-full p-2 text-sm text-gray-400" onClick={() => { localStorage.setItem("kk2-country-skip", "1"); setSkipCountry(true); }}>Skip for now</button></div></div>}
       {toast && <div role="status" className="fixed bottom-40 left-1/2 md:bottom-8 flex -translate-x-1/2 items-center gap-3 rounded-2xl bg-gold px-4 py-2 text-black">{toast}{undo && <button className="font-bold underline" onClick={async () => { await undo(); setToast(""); setUndo(null); }}>Undo</button>}</div>}
     </main>
   );

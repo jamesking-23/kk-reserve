@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState, useCallback, ComponentType, ReactNode } from "react";
+import { Trophy, X } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { fmt, parseMoney, groupDigits } from "@/lib/money";
 
@@ -36,7 +37,7 @@ export default function Reserves({ Btn, input, say }: { Btn: Btn; input: string;
     const { error } = await supabase.from("reserve_contributions").insert({ reserve_id: r.id, amount: sign * v });
     if (error) return say(error.message);
     setAmt({ ...amt, [r.id]: "" }); load();
-    if (sign > 0 && saved(r.id) + v >= r.target_amount) say("🎉 Goal reached!");
+    if (sign > 0 && saved(r.id) + v >= r.target_amount) say("Goal reached!");
   };
   const remove = async () => { if (!ask) return; await supabase.from("reserves").delete().eq("id", ask.id); setAsk(null); load(); say("Reserve deleted"); };
 
@@ -47,9 +48,9 @@ export default function Reserves({ Btn, input, say }: { Btn: Btn; input: string;
       {rs.map(r => { const s = saved(r.id); const pct = Math.min(100, (s / r.target_amount) * 100);
         const days = r.target_date ? Math.ceil((new Date(r.target_date).getTime() - Date.now()) / 864e5) : null;
         return <div key={r.id} className="surface space-y-2 rounded-3xl p-4">
-          <div className="flex items-start justify-between gap-2"><div><p className="font-semibold">{r.name} {s >= r.target_amount && "🏆"}</p>
+          <div className="flex items-start justify-between gap-2"><div><p className="font-semibold">{r.name} {s >= r.target_amount && <Trophy size={16} className="ml-1 inline text-yellow-400" aria-label="Goal reached" />}</p>
             <p className="text-sm text-gray-400">{fmt(s)} of {fmt(r.target_amount)}{days !== null && (days >= 0 ? ` · ${days} days left` : " · past target date")}</p></div>
-            <button aria-label={`Delete ${r.name}`} className="p-2 text-gray-400" onClick={() => setAsk(r)}>✕</button></div>
+            <button aria-label={`Delete ${r.name}`} className="p-2 text-gray-400" onClick={() => setAsk(r)}><X size={16} /></button></div>
           <div className="h-2 rounded bg-white/10" role="progressbar" aria-valuenow={Math.round(pct)} aria-valuemin={0} aria-valuemax={100} aria-label={`${r.name} progress`}><div className="h-2 rounded bg-gold" style={{ width: pct + "%" }} /></div>
           <div className="flex gap-2"><input className={input} aria-label={`Amount for ${r.name}`} inputMode="numeric" placeholder="Amount" value={amt[r.id] ?? ""} onChange={e => setAmt({ ...amt, [r.id]: groupDigits(e.target.value) })} />
             <button className="glass rounded-2xl px-4" onClick={() => contribute(r, -1)}>Withdraw</button></div>

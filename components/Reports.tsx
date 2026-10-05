@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { AlertTriangle } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { fmt } from "@/lib/money";
 
@@ -90,7 +91,7 @@ export default function Reports({ onChanged }: { onChanged?: () => void }) {
         {myCats.map(c => { const a = sum(mine.filter(e => e.category_id === c.id)); const max = Math.max(c.amount, a) || 1;
           return <div key={c.id} className="text-sm"><div className="flex justify-between"><span>{c.name}</span><span className={a > c.amount ? "text-red-400" : ""}>{fmt(a)} / {fmt(c.amount)}</span></div>
             <div className="relative h-2 rounded bg-white/10" role="img" aria-label={`${c.name}: spent ${fmt(a)} of ${fmt(c.amount)}`}><div className="absolute h-2 rounded bg-white/25" style={{ width: (c.amount / max) * 100 + "%" }} /><div className={`absolute h-2 rounded ${a > c.amount ? "bg-red-500" : "bg-gold"}`} style={{ width: (a / max) * 100 + "%" }} /></div></div>; })}
-        {unpl > 0 && <p className="text-sm text-orange-400">⚠ Unplanned: {fmt(unpl)}</p>}</div>
+        {unpl > 0 && <p className="flex items-center gap-1 text-sm text-orange-400"><AlertTriangle size={14} />Unplanned: {fmt(unpl)}</p>}</div>
       <div className="surface space-y-2 rounded-3xl p-4 text-sm"><h3 className="font-semibold">Import CSV into “{bs.find(b => b.id === sel)?.name}”</h3>
         <p className="text-gray-400">Columns: Date (YYYY-MM-DD), Amount, Category, Note. Blank category = unplanned. Duplicates are skipped.</p>
         <input type="file" accept=".csv,text/csv" aria-label="CSV file" onChange={e => { onFile(e.target.files?.[0]); e.target.value = ""; }} />

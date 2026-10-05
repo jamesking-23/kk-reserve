@@ -1,6 +1,6 @@
 "use client";
 import { useState, ReactNode } from "react";
-import { fmt } from "@/lib/money";
+import { fmt, toDisplay } from "@/lib/money";
 
 export const PALETTE = ["#F472B6", "#A78BFA", "#60A5FA", "#34D399", "#FBBF24", "#C4B5FD"];
 export const UNPLANNED = "#FB923C";
@@ -21,7 +21,7 @@ export function Sparkline({ values, color }: { values: number[]; color: string }
   );
 }
 
-export function Stat({ title, value, icon, tint, series, color, foot }: { title: string; value: string; icon: string; tint: string; series: number[]; color: string; foot?: ReactNode }) {
+export function Stat({ title, value, icon, tint, series, color, foot }: { title: string; value: string; icon: ReactNode; tint: string; series: number[]; color: string; foot?: ReactNode }) {
   return (
     <div className="surface rounded-3xl p-4">
       <div className="flex items-start justify-between gap-2"><div className="min-w-0"><p className="text-sm text-gray-400">{title}</p><p className="mt-1 truncate text-2xl font-bold tracking-tight">{value}</p></div>
@@ -44,7 +44,7 @@ export function AreaChart({ data, color = "#8B5CF6" }: { data: { label: string; 
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label={`Spending over ${n} days. Highest day ${fmt(Math.max(...data.map(d => d.value)))}.`}
         onPointerMove={e => { const r = e.currentTarget.getBoundingClientRect(); const px = ((e.clientX - r.left) / r.width) * W; setHover(Math.max(0, Math.min(n - 1, Math.round(((px - L) / (W - L - R)) * (n - 1))))); }} onPointerLeave={() => setHover(null)}>
         <defs><linearGradient id="areaFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor={color} stopOpacity=".35" /><stop offset="1" stopColor={color} stopOpacity="0" /></linearGradient></defs>
-        {[0, 0.5, 1].map(t => <g key={t}><line x1={L} x2={W - R} y1={y(top * t)} y2={y(top * t)} stroke="currentColor" strokeOpacity=".12" /><text x={L - 6} y={y(top * t) + 4} textAnchor="end" fontSize="10" fill="currentColor" opacity=".55">{compact(top * t)}</text></g>)}
+        {[0, 0.5, 1].map(t => <g key={t}><line x1={L} x2={W - R} y1={y(top * t)} y2={y(top * t)} stroke="currentColor" strokeOpacity=".12" /><text x={L - 6} y={y(top * t) + 4} textAnchor="end" fontSize="10" fill="currentColor" opacity=".55">{compact(toDisplay(top * t))}</text></g>)}
         {n > 1 && <><path d={`${line} L${x(n - 1)},${y(0)} L${x(0)},${y(0)} Z`} fill="url(#areaFill)" /><path d={line} fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" /></>}
         {data.map((d, i) => i % step === 0 && <text key={i} x={x(i)} y={H - 7} textAnchor="middle" fontSize="10" fill="currentColor" opacity=".55">{d.label}</text>)}
         {hv && hover !== null && <g><line x1={x(hover)} x2={x(hover)} y1={T} y2={y(0)} stroke={color} strokeDasharray="3 3" opacity=".6" /><circle cx={x(hover)} cy={y(hv.value)} r="5" fill={color} stroke="#fff" strokeWidth="2" />
@@ -61,7 +61,7 @@ export function Donut({ slices, total }: { slices: { label: string; value: numbe
       <circle cx="90" cy="90" r={r} fill="none" stroke="currentColor" strokeOpacity=".1" strokeWidth="26" />
       {total > 0 && slices.filter(s => s.value > 0).map(s => { const len = (s.value / total) * C, off = acc; acc += len;
         return <circle key={s.label} cx="90" cy="90" r={r} fill="none" stroke={s.color} strokeWidth="26" strokeDasharray={`${Math.max(len - 2, 0)} ${C - Math.max(len - 2, 0)}`} strokeDashoffset={-off} transform="rotate(-90 90 90)" />; })}
-      <text x="90" y="86" textAnchor="middle" fontSize="15" fontWeight="700" fill="currentColor">{Math.round(total).toLocaleString()}</text>
+      <text x="90" y="86" textAnchor="middle" fontSize="15" fontWeight="700" fill="currentColor">{Math.round(toDisplay(total)).toLocaleString()}</text>
       <text x="90" y="104" textAnchor="middle" fontSize="10" fill="currentColor" opacity=".6">Total spent</text>
     </svg>
   );
