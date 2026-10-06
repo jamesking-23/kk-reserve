@@ -1,0 +1,3 @@
+-- Applied 2026-10-05. Rollback: drop table public.mobile_money_transactions;
+create table if not exists public.mobile_money_transactions (id uuid primary key default gen_random_uuid(), user_id uuid not null references auth.users on delete cascade default auth.uid(), provider text not null check (provider in ('mtn','airtel')), reference_id uuid not null unique, external_id text, amount numeric(14,2) not null check (amount > 0), currency text not null, payer_hint text, note text, status text not null default 'PENDING' check (status in ('PENDING','SUCCESSFUL','FAILED')), reason text, created_at timestamptz not null default now(), updated_at timestamptz not null default now());
+-- RLS "own rows" policy and index mm_tx_user_created_idx as applied.
