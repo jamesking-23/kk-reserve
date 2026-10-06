@@ -3,10 +3,9 @@ import { useEffect, useState, useCallback, ComponentType, ReactNode } from "reac
 import { AlertTriangle, Trash2, CheckCircle2, Globe, Link2, Info } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { fmt, fmtIn, parseMoney, groupDigits } from "@/lib/money";
-import { payoff, forecastBalance, monteCarlo, rentVsBuy, monthlyEq } from "@/lib/finance";
+import { payoff, forecastBalance, monteCarlo, rentVsBuy, monthlyEq, ASSET_CLASSES as CLASSES } from "@/lib/finance";
 import { CURRENCIES, COUNTRIES, convert, Rates } from "@/lib/fx";
 import { AreaChart, Donut, PALETTE } from "@/components/Charts";
-import MobileMoney from "@/components/MobileMoney";
 
 type Btn = ComponentType<{ children: ReactNode; onClick: () => Promise<void> | void }>;
 type Common = { Btn: Btn; say: (m: string) => void };
@@ -110,7 +109,6 @@ export function DebtHub({ Btn, say }: Common) {
 
 /* ---------- Wealth: manual multi-asset tracking + net worth ---------- */
 type AssetRow = { id: string; name: string; class: string; value: number; currency: string };
-const CLASSES = ["Equities", "ETFs", "Mutual funds", "Crypto", "Commodities", "Forex", "Cash", "Real estate", "Private equity", "Collectibles", "Agricultural", "Vehicles"];
 export function Wealth({ Btn, say, rates }: Common & { rates: Rates }) {
   const { rows, load } = useRows<AssetRow>("assets"); const debts = useRows<DebtRow>("liabilities").rows;
   const [f, setF] = useState({ name: "", cls: CLASSES[0], value: "", cur: "UGX" });
@@ -175,7 +173,6 @@ export function Region({ rates, live, country, onCountry, display, onDisplay, sa
       <Card title="Currency converter"><div className="grid grid-cols-3 gap-2"><input className={input} aria-label="Amount" inputMode="decimal" value={amt} onChange={e => setAmt(e.target.value)} />
         <select className={input} aria-label="From" value={from} onChange={e => setFrom(e.target.value)}>{CURRENCIES.map(x => <option key={x}>{x}</option>)}</select><select className={input} aria-label="To" value={to} onChange={e => setTo(e.target.value)}>{CURRENCIES.map(x => <option key={x}>{x}</option>)}</select></div>
         <p className="text-lg font-bold">{fmtIn(convert(num(amt), from, to, rates), to)}</p></Card>
-      <MobileMoney say={say} />
       <Card title="Other connections"><p className="flex items-start gap-2 text-sm text-gray-400"><Link2 size={16} className="mt-0.5 shrink-0" />Common wallets in {c?.name ?? "your country"}: {(c?.wallets ?? ["select a country"]).join(", ")}. Bank aggregators (Stitch, Mono, PawaPay) and other wallets are not connected.</p></Card>
     </Page>
   );

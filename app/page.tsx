@@ -6,7 +6,8 @@ import { supabase } from "@/lib/supabase";
 import Avatar, { resizeImage } from "@/components/Avatar";
 import { fmt, parseMoney, groupDigits, setDisplay } from "@/lib/money";
 import { useRates, convert, COUNTRIES } from "@/lib/fx";
-import { healthScore } from "@/lib/finance";
+import { healthScore, ASSET_CLASSES, LIQUID_CLASSES } from "@/lib/finance";
+import Accounts from "@/components/Accounts";
 import { CashFlow, DebtHub, Wealth, Planning, Region } from "@/components/Finance";
 import Reserves from "@/components/Reserves";
 import Reports from "@/components/Reports";
@@ -18,8 +19,8 @@ const ACCENTS = ["#FFD700", "#A78BFA", "#FFB020", "#34D399", "#38BDF8", "#FB7185
 const dayKey = (d: Date) => d.toISOString().slice(0, 10);
 const lastDays = (n: number) => Array.from({ length: n }, (_, i) => dayKey(new Date(Date.now() - (n - 1 - i) * 864e5)));
 const iconFor = (n: string) => /rent|house|housing/i.test(n) ? HomeIcon : /food|eat|lunch|dinner|coffee|meal/i.test(n) ? Utensils : /transport|fuel|boda|taxi|bus/i.test(n) ? Bus : /airtime|data|phone/i.test(n) ? Smartphone : /shop/i.test(n) ? ShoppingBag : /unplanned/i.test(n) ? AlertTriangle : CreditCard;
-const NAV = [["home", "Overview"], ["plan", "Budgets"], ["cash", "Cash flow"], ["wealth", "Wealth"], ["debt", "Debt"], ["reserves", "Goals"], ["planning", "Planning"], ["reports", "Reports"], ["region", "Region"]] as const;
-const ICON: Record<string, ComponentType<{ size?: number; strokeWidth?: number }>> = { home: LayoutGrid, plan: SlidersHorizontal, cash: Activity, wealth: Landmark, debt: Receipt, reserves: Target, planning: Calculator, reports: BarChart3, region: Globe, settings: Settings };
+const NAV = [["home", "Overview"], ["accounts", "Accounts"], ["plan", "Budgets"], ["cash", "Cash flow"], ["wealth", "Wealth"], ["debt", "Debt"], ["reserves", "Goals"], ["planning", "Planning"], ["reports", "Reports"], ["region", "Region"]] as const;
+const ICON: Record<string, ComponentType<{ size?: number; strokeWidth?: number }>> = { home: LayoutGrid, accounts: Wallet, plan: SlidersHorizontal, cash: Activity, wealth: Landmark, debt: Receipt, reserves: Target, planning: Calculator, reports: BarChart3, region: Globe, settings: Settings };
 const Ico = ({ k, size = 22 }: { k: string; size?: number }) => { const I = ICON[k]; return <I size={size} strokeWidth={1.7} aria-hidden />; };
 const applyTheme = (t: string, a: string) => { const d = t === "system" ? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light") : t; document.documentElement.dataset.theme = d; document.documentElement.style.setProperty("--accent", a || "#FFD700"); localStorage.setItem("kk2-theme", t); localStorage.setItem("kk2-accent", a || ""); };
 type Cat = { id: string; name: string; amount: number };
@@ -136,7 +137,7 @@ function Dashboard() {
   const [country, setCountry] = useState("");
   const [profLoaded, setProfLoaded] = useState(false);
   const [skipCountry, setSkipCountry] = useState(() => localStorage.getItem("kk2-country-skip") === "1");
-  const [snap, setSnap] = useState({ assets: 0, debt: 0 });
+  const [snap, setSnap] = useState<{ assets: number; debt: number; liquid: number; holdings: { name: string; cls: string; value: number }[] }>({ assets: 0, debt: 0, liquid: 0, holdings: [] });
   setDisplay(display, convert(1, "UGX", display, rt.rates));
   const say = (m: string, u?: () => Promise<void>) => { setToast(m); setUndo(u ? () => u : null); setTimeout(() => { setToast(""); setUndo(null); }, u ? 7000 : 2500); };
   const openNew = () => { setF({ ...blank, date: today() }); setSheet(true); };
@@ -204,8 +205,9 @@ function Dashboard() {
     setProf(p => ({ ...p, avatar_url: null })); say("Photo removed");
   };
   const loadSavings = useCallback(async () => {
-    const [r, c, a, l] = await Promise.all([supabase.from("reserves").select("target_amount").eq("archived", false), supabase.from("reserve_contributions").select("amount,contributed_on"), supabase.from("assets").select("value,currency"), supabase.from("liabilities").select("balance")]);
-    setSnap({ assets: (a.data ?? []).reduce((t, x) => t + convert(Number(x.value), x.currency, "UGX", rt.rates), 0), debt: (l.data ?? []).reduce((t, x) => t + Number(x.balance), 0) });
+    const [r, c, a, l] = await Promise.all([supabase.from("reserves").select("target_amount").eq("archived", false), supabase.from("reserve_contributions").select("amount,contributed_on"), supabase.from("assets").select("name,class,value,currency"), supabase.from("liabilities").select("balance")]);
+    const hold = (a.data ?? []).map(x => ({ name: x.name as string, cls: x.class as string, value: convert(Number(x.value), x.currency, "UGX", rt.rates) }));
+    setSnap({ assets: hold.reduce((t, h) => t + h.value, 0), liquid: hold.filter(h => LIQUID_CLASSES.includes(h.cls)).reduce((t, h) => t + h.value, 0), holdings: hold, debt: (l.data ?? []).reduce((t, x) => t + Number(x.balance), 0) });
     const rows = c.data ?? [], keys = lastDays(14), before = rows.filter(x => x.contributed_on < keys[0]).reduce((t, x) => t + Number(x.amount), 0);
     let run = before; const series = keys.map(k => (run += rows.filter(x => x.contributed_on === k).reduce((t, x) => t + Number(x.amount), 0)));
     setSv({ saved: rows.reduce((t, x) => t + Number(x.amount), 0), target: (r.data ?? []).reduce((t, x) => t + Number(x.target_amount), 0), series });
@@ -259,7 +261,9 @@ function Dashboard() {
   const slices = [...cats.map((c, i) => ({ label: c.name, value: exps.filter(e => e.category_id === c.id).reduce((t, e) => t + Number(e.amount), 0), color: PALETTE[i % PALETTE.length] })), { label: "Unplanned", value: unplanned, color: UNPLANNED }].filter(x => x.value > 0);
   const recent = [...exps].sort((a, c) => c.spent_on.localeCompare(a.spent_on)).slice(0, 5);
   const k30 = lastDays(30), monthlySpend = k30.reduce((t, k) => t + spend(k), 0);
-  const hs = healthScore({ status, saved: sv.saved, monthlySpend, debt: snap.debt, assets: snap.assets });
+  const hs = healthScore({ status: b ? status : null, saved: sv.saved, liquid: snap.liquid, monthlySpend, debt: snap.debt, assets: snap.assets });
+  const runway = monthlySpend > 0 ? snap.liquid / monthlySpend : null, byClass = ASSET_CLASSES.map((c, i) => ({ label: c, value: snap.holdings.filter(h => h.cls === c).reduce((t, h) => t + h.value, 0), color: PALETTE[i % PALETTE.length] })).filter(x => x.value > 0);
+  const top = [...snap.holdings].sort((x, y) => y.value - x.value).slice(0, 6);
   const sum60 = lastDays(60).reduce((t, k) => t + spend(k), 0), firstDay = exps.reduce((m2, e) => (e.spent_on < m2 ? e.spent_on : m2), "9999-99-99");
   const span60 = firstDay === "9999-99-99" ? 1 : Math.min(60, Math.max(1, Math.ceil((Date.now() - new Date(firstDay + "T00:00:00").getTime()) / 864e5) + 1)), avgDaily = sum60 / span60;
   const startD = b?.start_date ? new Date(b.start_date + "T00:00:00") : (() => { const d = new Date(b?.created_at ?? Date.now()); return new Date(d.getFullYear(), d.getMonth(), 1); })();
@@ -277,11 +281,36 @@ function Dashboard() {
           <button role="menuitem" className="w-full rounded-xl p-2 text-left hover:bg-white/10" onClick={() => { setMenu(false); setSettings(true); }}>Profile &amp; settings</button>
           <button role="menuitem" className="w-full rounded-xl p-2 text-left hover:bg-white/10" onClick={() => supabase.auth.signOut()}>Log out</button></div>}
       </header>
-      {(tab === "home" || tab === "plan") && budgets.length > 0 && <div className="space-y-2"><select className={input} aria-label="Budget" value={bid} onChange={e => setBid(e.target.value)}>{budgets.map(x => <option key={x.id} value={x.id}>{x.name}{x.archived ? " (archived)" : ""}</option>)}</select>
+      {tab === "plan" && budgets.length > 0 && <div className="space-y-2"><select className={input} aria-label="Budget" value={bid} onChange={e => setBid(e.target.value)}>{budgets.map(x => <option key={x.id} value={x.id}>{x.name}{x.archived ? " (archived)" : ""}</option>)}</select>
         {tab === "plan" && b && <div className="flex gap-2 text-sm"><button className="glass flex-1 rounded-xl p-2" onClick={duplicateBudget}>Duplicate</button><button className="glass flex-1 rounded-xl p-2" onClick={archiveBudget}>{b.archived ? "Unarchive" : "Archive"}</button></div>}</div>}
-      {tab === "home" && !b && <div className="surface space-y-3 rounded-3xl p-5 text-center"><p>No budget yet.</p><button className="rounded-2xl bg-gold px-4 py-2 font-semibold text-black" onClick={() => setTab("plan")}>Create your first budget</button></div>}
       {tab === "home" && <div><h2 className="text-2xl font-bold tracking-tight md:text-3xl">{hello}, {shown}</h2><p className="text-sm text-gray-400">Here's what's happening with your finances today.</p></div>}
-      {tab === "home" && b && <>
+      {tab === "home" && <>
+        <section aria-label="Balances" className="grid gap-4 sm:grid-cols-3">
+          <Stat title="Net worth" value={money(snap.assets - snap.debt)} icon={<Landmark size={22} />} tint="from-violet-300/70 to-indigo-200/70" series={[]} color="#8B5CF6" foot={<span className="text-gray-400">Assets minus debt</span>} />
+          <Stat title="Liquid cash" value={money(snap.liquid)} icon={<Wallet size={22} />} tint="from-emerald-300/70 to-teal-200/70" series={[]} color="#34D399" foot={<span className="text-gray-400">{runway !== null ? `${runway.toFixed(1)} months of spending` : "Bank, mobile money and cash"}</span>} />
+          <Stat title="Total assets" value={money(snap.assets)} icon={<TrendingUp size={22} />} tint="from-pink-300/70 to-rose-200/70" series={[]} color="#F472B6" foot={<span className="text-gray-400">{snap.holdings.length} {snap.holdings.length === 1 ? "account or holding" : "accounts and holdings"}</span>} />
+        </section>
+        <div className="grid gap-4 md:grid-cols-3">
+          <div className="space-y-4 md:col-span-2">
+            <section aria-label="Metrics" className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+              {([["Debt owed", money(snap.debt)], ["Debt vs assets", snap.assets > 0 ? `${Math.round((snap.debt / snap.assets) * 100)}%` : "-"], ["Savings in goals", money(sv.saved)], ["Spent, last 30 days", b ? money(monthlySpend) : "-"]] as [string, string][]).map(([l, v]) =>
+                <div key={l} className="surface rounded-3xl p-4"><p className="text-sm text-gray-400">{l}</p><p className="mt-1 truncate text-lg font-bold tracking-tight">{v}</p></div>)}
+            </section>
+            <div className="surface rounded-3xl p-4"><div className="mb-2 flex items-center justify-between"><h3 className="font-semibold">Accounts and holdings</h3><button className="glass rounded-xl px-3 py-1.5 text-sm" onClick={() => setTab("wealth")}>Manage</button></div>
+              {top.length === 0 && <p className="text-sm text-gray-400">No accounts added yet. Add your bank, mobile money and cash accounts under Wealth to see your balances here.</p>}
+              {top.map(h => <div key={h.name + h.cls} className="flex items-center justify-between gap-3 rounded-2xl p-2 text-sm"><div className="min-w-0"><p className="truncate font-medium">{h.name}</p><p className="text-xs text-gray-400">{h.cls}</p></div><p className="font-semibold">{money(h.value)}</p></div>)}</div>
+          </div>
+          <aside className="space-y-4" aria-label="Summary">
+            <div className="surface rounded-3xl p-4"><h3 className="font-semibold">Financial health</h3><p className="mt-1 text-3xl font-bold tracking-tight">{hs.score}<span className="text-base font-medium text-gray-400"> / 100</span></p>
+              <div className="mt-2 space-y-2 text-sm">{hs.parts.map(x => <div key={x.label}><div className="flex justify-between text-gray-400"><span>{x.label}</span><span>{x.value}/{x.max}</span></div><div className="h-1.5 rounded bg-white/10"><div className="h-1.5 rounded bg-gold" style={{ width: (x.value / x.max) * 100 + "%" }} /></div></div>)}</div></div>
+            <div className="surface rounded-3xl p-4"><h3 className="mb-2 font-semibold">Allocation</h3><Donut slices={byClass} total={snap.assets} />
+              <ul className="mt-3 space-y-1.5 text-sm">{byClass.length === 0 && <li className="text-gray-400">Nothing to show yet.</li>}{byClass.map(x => <li key={x.label} className="flex items-center gap-2"><span aria-hidden className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: x.color }} /><span className="flex-1 truncate">{x.label}</span><span className="text-gray-400">{Math.round((x.value / snap.assets) * 100)}%</span></li>)}</ul></div>
+            {b && <div className="surface space-y-1 rounded-3xl p-4 text-sm"><h3 className="text-base font-semibold">Budget snapshot</h3><p><span className={`font-medium ${color}`}>{status}</span> - {money(remaining)} left of {money(start)}</p><button className="glass mt-1 rounded-xl px-3 py-1.5" onClick={() => setTab("plan")}>Open budgets</button></div>}
+          </aside>
+        </div>
+      </>}
+      {tab === "accounts" && <Accounts />}
+      {tab === "plan" && b && <>
         <section aria-label="Key figures" className="grid gap-4 sm:grid-cols-3">
           <Stat title="Remaining balance" value={money(remaining)} icon={<Wallet size={22} />} tint="from-violet-300/70 to-indigo-200/70" series={balSeries} color="#8B5CF6" foot={<span className={`inline-flex items-center gap-1.5 font-medium ${color}`}><span className="inline-block h-2 w-2 rounded-full bg-current" />{status}</span>} />
           <Stat title="Total spent" value={money(spent)} icon={<ShoppingBag size={22} />} tint="from-pink-300/70 to-rose-200/70" series={d14} color="#F472B6" foot={<span className="text-gray-400">{planned > 0 ? `${Math.round((spent / planned) * 100)}% of planned` : "No plan yet"}</span>} />

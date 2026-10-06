@@ -32,5 +32,5 @@ describe("planning", () => {
     const a = monteCarlo(p, 500), b = monteCarlo(p, 500); expect(a).toEqual(b); expect(a.success).toBeGreaterThanOrEqual(0); expect(a.success).toBeLessThanOrEqual(1);
   });
   it("rent vs buy returns a payment", () => expect(rentVsBuy({ price: 1e6, downPct: 20, rate: 10, years: 20, rent: 4000, rentGrowth: 5, appreciation: 5, investReturn: 7 }).pmt).toBeGreaterThan(0));
-  it("health score is within 0-100", () => { const h = healthScore({ status: "On Track", saved: 600, monthlySpend: 100, debt: 0, assets: 0 }); expect(h.score).toBeLessThanOrEqual(100); expect(h.score).toBeGreaterThan(0); });
+  it("health score is within 0-100", () => { const h = healthScore({ status: "On Track", saved: 600, liquid: 0, monthlySpend: 100, debt: 0, assets: 0 }); expect(h.score).toBeLessThanOrEqual(100); expect(h.score).toBeGreaterThan(0); expect(healthScore({ status: null, saved: 0, liquid: 0, monthlySpend: 0, debt: 0, assets: 0 }).parts.length).toBe(2); });
 });

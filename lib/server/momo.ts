@@ -1,11 +1,10 @@
-// MTN MoMo Collection API client. SERVER ONLY: reads secrets from process.env, never import from a client component.
-import { randomUUID } from "crypto";
+// MTN MoMo Collection API client (READ-ONLY: token + account balance). SERVER ONLY: reads secrets from process.env.
 
 export class MomoConfigError extends Error {}
 export class MomoError extends Error {
   constructor(message: string, public status: number, public code?: string) { super(message); this.name = "MomoError"; }
 }
-export type MomoConfig = { baseUrl: string; subscriptionKey: string; apiUser: string; apiKey: string; targetEnv: string; currency: string; callbackUrl?: string };
+export type MomoConfig = { baseUrl: string; subscriptionKey: string; apiUser: string; apiKey: string; targetEnv: string; currency: string };
 
 const clean = (v: string) => v.trim().replace(/^\[|\]$/g, ""); // tolerate values pasted with brackets
 
@@ -18,7 +17,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   if (!/^https:\/\//.test(baseUrl)) throw new MomoConfigError("MTN_BASE_URL must be an https URL (sandbox: https://sandbox.momodeveloper.mtn.com).");
   return {
     baseUrl, targetEnv, subscriptionKey: clean(env.MTN_SUBSCRIPTION_KEY!), apiUser: clean(env.MTN_API_USER_UUID!), apiKey: clean(env.MTN_API_KEY!),
-    currency: clean(env.MTN_CURRENCY || (targetEnv === "sandbox" ? "EUR" : "UGX")), callbackUrl: env.MTN_CALLBACK_URL?.trim() || undefined,
+    currency: clean(env.MTN_CURRENCY || (targetEnv === "sandbox" ? "EUR" : "UGX")),
   };
 }
 
@@ -69,23 +68,6 @@ const authed = (cfg: MomoConfig, token: string): Record<string, string> => ({ Au
 export async function getWalletBalance(accessToken: string, cfg: MomoConfig = loadConfig()): Promise<{ availableBalance: string; currency: string }> {
   const { body } = await call(cfg, "/collection/v1_0/account/balance", { method: "GET", headers: authed(cfg, accessToken) }, { retries: 1 });
   return { availableBalance: String(body?.availableBalance ?? "0"), currency: String(body?.currency ?? cfg.currency) };
-}
-
-export type CollectInput = { referenceId?: string; amount: string; phone: string; externalId: string; payerMessage?: string; payeeNote?: string };
-/** Asks a payer (MSISDN) to approve a payment. Not retried: the X-Reference-Id makes a manual retry safe. */
-export async function requestToPay(accessToken: string, input: CollectInput, cfg: MomoConfig = loadConfig()): Promise<{ referenceId: string }> {
-  const referenceId = input.referenceId ?? randomUUID();
-  const headers: Record<string, string> = { ...authed(cfg, accessToken), "X-Reference-Id": referenceId, "Content-Type": "application/json" };
-  if (cfg.callbackUrl) headers["X-Callback-Url"] = cfg.callbackUrl;
-  await call(cfg, "/collection/v1_0/requesttopay", { method: "POST", headers, body: JSON.stringify({ amount: input.amount, currency: cfg.currency, externalId: input.externalId, payer: { partyIdType: "MSISDN", partyId: input.phone }, payerMessage: input.payerMessage ?? "Payment request", payeeNote: input.payeeNote ?? "" }) });
-  return { referenceId };
-}
-
-export type CollectStatus = { status: "PENDING" | "SUCCESSFUL" | "FAILED"; reason?: string; amount?: string; currency?: string };
-export async function getRequestToPayStatus(accessToken: string, referenceId: string, cfg: MomoConfig = loadConfig()): Promise<CollectStatus> {
-  const { body } = await call(cfg, `/collection/v1_0/requesttopay/${encodeURIComponent(referenceId)}`, { method: "GET", headers: authed(cfg, accessToken) }, { retries: 1 });
-  const s = String(body?.status ?? "PENDING").toUpperCase();
-  return { status: s === "SUCCESSFUL" || s === "FAILED" ? s : "PENDING", reason: typeof body?.reason === "string" ? body.reason : body?.reason?.code, amount: body?.amount, currency: body?.currency };
 }
 
 /** Runs fn with a token and retries once with a fresh token if MTN says 401. */

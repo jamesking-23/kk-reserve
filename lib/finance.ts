@@ -57,9 +57,17 @@ export function rentVsBuy(p: { price: number; downPct: number; rate: number; yea
 }
 
 // Transparent 0-100 score: budget status (40) + liquidity of savings in months of spending (30) + debt vs assets (30).
-export function healthScore(i: { status: string; saved: number; monthlySpend: number; debt: number; assets: number }) {
-  const budget = i.status === "On Track" ? 40 : i.status === "At Risk" ? 25 : 8;
-  const months = i.monthlySpend > 0 ? i.saved / i.monthlySpend : i.saved > 0 ? 6 : 0, liquidity = Math.round(Math.min(30, (months / 6) * 30));
-  const denom = i.assets + i.saved, ratio = denom > 0 ? i.debt / denom : i.debt > 0 ? 1 : 0, debt = Math.round(30 * (1 - Math.min(1, ratio)));
-  return { score: budget + liquidity + debt, parts: [{ label: "Budget status", value: budget, max: 40 }, { label: "Savings liquidity", value: liquidity, max: 30 }, { label: "Debt vs assets", value: debt, max: 30 }] };
+export const ASSET_CLASSES = ["Bank account", "Mobile money", "Cash", "Equities", "ETFs", "Mutual funds", "Crypto", "Commodities", "Forex", "Real estate", "Private equity", "Collectibles", "Agricultural", "Vehicles"];
+export const LIQUID_CLASSES = ["Bank account", "Mobile money", "Cash"];
+
+// Transparent 0-100 score from the parts that apply: budget status (40, only if a budget exists), liquidity in months of spending (30), debt vs assets (30).
+export function healthScore(i: { status: string | null; saved: number; liquid: number; monthlySpend: number; debt: number; assets: number }) {
+  const parts: { label: string; value: number; max: number }[] = [];
+  if (i.status) parts.push({ label: "Budget status", value: i.status === "On Track" ? 40 : i.status === "At Risk" ? 25 : 8, max: 40 });
+  const cushion = i.saved + i.liquid, months = i.monthlySpend > 0 ? cushion / i.monthlySpend : cushion > 0 ? 6 : 0;
+  parts.push({ label: "Cash cushion", value: Math.round(Math.min(30, (months / 6) * 30)), max: 30 });
+  const denom = i.assets + i.saved, ratio = denom > 0 ? i.debt / denom : i.debt > 0 ? 1 : 0;
+  parts.push({ label: "Debt vs assets", value: Math.round(30 * (1 - Math.min(1, ratio))), max: 30 });
+  const max = parts.reduce((t, x) => t + x.max, 0), val = parts.reduce((t, x) => t + x.value, 0);
+  return { score: Math.round((val / max) * 100), parts };
 }
