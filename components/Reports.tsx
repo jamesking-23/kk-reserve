@@ -1,8 +1,10 @@
 "use client";
 import { useEffect, useState } from "react";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, FileDown } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { fmt } from "@/lib/money";
+import { useRates, convert } from "@/lib/fx";
+import { LIQUID_CLASSES } from "@/lib/finance";
 
 type B = { id: string; name: string; starting_balance: number };
 type C = { id: string; budget_id: string; name: string; amount: number };
@@ -27,6 +29,7 @@ function parseCsv(t: string) {
 type Row = { category_id: string | null; label: string | null; amount: number; spent_on: string };
 
 export default function Reports({ onChanged }: { onChanged?: () => void }) {
+  const rt = useRates();
   const [prev, setPrev] = useState<null | { ok: Row[]; dup: number; errs: string[] }>(null);
   const [note, setNote] = useState("");
   const [bs, setBs] = useState<B[]>([]); const [cs, setCs] = useState<C[]>([]); const [es, setEs] = useState<E[]>([]);
@@ -68,6 +71,15 @@ export default function Reports({ onChanged }: { onChanged?: () => void }) {
     setNote(`Imported ${prev.ok.length} expenses.`); setPrev(null); await load(); onChanged?.();
   };
   const sum = (xs: { amount: number }[]) => xs.reduce((t, x) => t + Number(x.amount), 0);
+  const exportNetWorth = async () => {
+    const [a, l, sn] = await Promise.all([supabase.from("assets").select("name,class,value,currency,cost_basis"), supabase.from("liabilities").select("name,kind,balance,apr"), supabase.from("net_worth_snapshots").select("taken_on,assets,liabilities").order("taken_on").limit(120)]);
+    const { buildNetWorthPdf } = await import("@/lib/pdf/reports"), cv = (v: number, c: string) => convert(v, c, "UGX", rt.rates);
+    const assets = (a.data ?? []).map(x => ({ name: x.name as string, cls: x.class as string, value: cv(Number(x.value), x.currency), cost: x.cost_basis ? cv(Number(x.cost_basis), x.currency) : null }));
+    const doc = buildNetWorthPdf({ generated: new Date().toLocaleDateString("en-UG", { day: "numeric", month: "long", year: "numeric" }), assets, liquid: assets.filter(x => LIQUID_CLASSES.includes(x.cls)).reduce((t, x) => t + x.value, 0),
+      liabilities: (l.data ?? []).map(x => ({ name: x.name as string, kind: x.kind as string, balance: Number(x.balance), apr: Number(x.apr) })),
+      history: (sn.data ?? []).map(x => ({ label: new Date(x.taken_on + "T00:00:00").toLocaleDateString("en-UG", { day: "numeric", month: "short" }), value: Number(x.assets) - Number(x.liabilities) })) });
+    doc.save("net-worth-statement.pdf");
+  };
   const exportCsv = () => {
     const name = (e: E) => cs.find(c => c.id === e.category_id)?.name ?? "";
     const rows = [["Budget", "Date", "Category", "Type", "Note", "Amount"], ...es.map(e => [bs.find(b => b.id === e.budget_id)?.name ?? "", e.spent_on, name(e), e.category_id ? "Planned" : "Unplanned", e.label ?? "", e.amount])];
@@ -76,13 +88,12 @@ export default function Reports({ onChanged }: { onChanged?: () => void }) {
     a.download = `kkingg-reserves-expenses-${new Date().toISOString().slice(0, 10)}.csv`; a.click(); URL.revokeObjectURL(a.href);
   };
   if (!ready) return <p className="text-gray-400">Loading reports…</p>;
-  if (bs.length === 0) return null;
   const mine = es.filter(e => e.budget_id === sel), myCats = cs.filter(c => c.budget_id === sel), unpl = sum(mine.filter(e => !e.category_id));
 
   return (
     <section className="space-y-3">
       <div className="flex items-center justify-between"><h2 className="font-semibold text-yellow-400">Reports</h2>
-        <button className="glass rounded-xl px-3 py-2 text-sm" onClick={exportCsv} disabled={es.length === 0}>Export CSV</button></div>
+        <div className="flex gap-2"><button className="glass inline-flex items-center gap-1 rounded-xl px-3 py-2 text-sm" onClick={exportNetWorth}><FileDown size={14} />Net worth PDF</button><button className="glass rounded-xl px-3 py-2 text-sm" onClick={exportCsv} disabled={es.length === 0}>Export CSV</button></div></div>
       <div className="space-y-2">{bs.map(b => { const bx = es.filter(e => e.budget_id === b.id), planned = sum(cs.filter(c => c.budget_id === b.id)), spent = sum(bx);
         return <button key={b.id} aria-pressed={sel === b.id} onClick={() => setSel(b.id)} className={`surface w-full rounded-2xl p-3 text-left text-sm ${sel === b.id ? "!border-yellow-400/70" : ""}`}>
           <span className="font-semibold">{b.name}</span><span className="block text-gray-400">Spent {fmt(spent)} of {fmt(planned)} planned · Unplanned {fmt(sum(bx.filter(e => !e.category_id)))} · Left {fmt(b.starting_balance - spent)}</span></button>; })}</div>

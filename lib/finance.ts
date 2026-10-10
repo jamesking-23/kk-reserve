@@ -56,18 +56,43 @@ export function rentVsBuy(p: { price: number; downPct: number; rate: number; yea
   return { pmt, buyNet, rentNet };
 }
 
-// Transparent 0-100 score: budget status (40) + liquidity of savings in months of spending (30) + debt vs assets (30).
 export const ASSET_CLASSES = ["Bank account", "Mobile money", "Cash", "Equities", "ETFs", "Mutual funds", "Crypto", "Commodities", "Forex", "Real estate", "Private equity", "Collectibles", "Agricultural", "Vehicles"];
 export const LIQUID_CLASSES = ["Bank account", "Mobile money", "Cash"];
 
-// Transparent 0-100 score from the parts that apply: budget status (40, only if a budget exists), liquidity in months of spending (30), debt vs assets (30).
-export function healthScore(i: { status: string | null; saved: number; liquid: number; monthlySpend: number; debt: number; assets: number }) {
+// Loan amortisation. Returns the monthly payment, months to clear (with optional extra payment), total interest and a yearly balance table.
+export function amortize(principal: number, aprPct: number, termMonths: number, extra = 0) {
+  const r = aprPct / 1200, n = Math.max(1, Math.round(termMonths));
+  const payment = r === 0 ? principal / n : (principal * r) / (1 - Math.pow(1 + r, -n));
+  let bal = principal, interest = 0, m = 0; const yearly: { year: number; balance: number; interest: number }[] = []; let yi = 0;
+  while (bal > 0.005 && m < 1200) { m++; const i = bal * r; interest += i; yi += i; bal = Math.max(0, bal + i - (payment + Math.max(extra, 0))); if (m % 12 === 0 || bal <= 0.005) { yearly.push({ year: Math.ceil(m / 12), balance: bal, interest: yi }); yi = 0; } }
+  return { payment, months: m, interest, totalPaid: principal + interest, yearly };
+}
+// Savings growth with monthly contributions, compounded monthly. One point per year.
+export function futureValue(initial: number, monthly: number, aprPct: number, years: number) {
+  const r = aprPct / 1200; let bal = initial; const out: { year: number; balance: number; contributed: number }[] = [{ year: 0, balance: initial, contributed: initial }];
+  for (let y = 1; y <= years; y++) { for (let k = 0; k < 12; k++) bal = bal * (1 + r) + monthly; out.push({ year: y, balance: bal, contributed: initial + monthly * 12 * y }); }
+  return out;
+}
+export function requiredMonthly(target: number, initial: number, aprPct: number, years: number) {
+  const n = years * 12, r = aprPct / 1200, grown = initial * Math.pow(1 + r, n);
+  if (grown >= target) return 0;
+  return r === 0 ? (target - initial) / n : ((target - grown) * r) / (Math.pow(1 + r, n) - 1);
+}
+
+// Transparent 0-100 score from the parts that apply. Budget status (40) only if a budget exists; savings rate (20) and debt-to-income (20) only if income is recorded.
+export function healthScore(i: { status: string | null; saved: number; liquid: number; monthlySpend: number; debt: number; assets: number; income?: number; debtPayments?: number }) {
   const parts: { label: string; value: number; max: number }[] = [];
   if (i.status) parts.push({ label: "Budget status", value: i.status === "On Track" ? 40 : i.status === "At Risk" ? 25 : 8, max: 40 });
   const cushion = i.saved + i.liquid, months = i.monthlySpend > 0 ? cushion / i.monthlySpend : cushion > 0 ? 6 : 0;
   parts.push({ label: "Cash cushion", value: Math.round(Math.min(30, (months / 6) * 30)), max: 30 });
   const denom = i.assets + i.saved, ratio = denom > 0 ? i.debt / denom : i.debt > 0 ? 1 : 0;
   parts.push({ label: "Debt vs assets", value: Math.round(30 * (1 - Math.min(1, ratio))), max: 30 });
+  if ((i.income ?? 0) > 0) {
+    const rate = Math.max(0, ((i.income as number) - i.monthlySpend) / (i.income as number));
+    parts.push({ label: "Savings rate", value: Math.round(20 * Math.min(1, rate / 0.2)), max: 20 });
+    const dti = (i.debtPayments ?? 0) / (i.income as number);
+    parts.push({ label: "Debt-to-income", value: Math.round(20 * (1 - Math.min(1, Math.max(0, (dti - 0.2) / 0.3)))), max: 20 });
+  }
   const max = parts.reduce((t, x) => t + x.max, 0), val = parts.reduce((t, x) => t + x.value, 0);
   return { score: Math.round((val / max) * 100), parts };
 }

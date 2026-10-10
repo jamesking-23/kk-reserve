@@ -6,16 +6,16 @@ export type Rates = Record<string, number>; // units of currency per 1 USD
 export const FALLBACK: Rates = { USD: 1, UGX: 3700, KES: 129, TZS: 2600, RWF: 1400, BIF: 2900, CDF: 2800, SOS: 571, EUR: 0.92, GBP: 0.78 };
 export const convert = (amount: number, from: string, to: string, rates: Rates) => (rates[from] && rates[to] ? (amount / rates[from]) * rates[to] : amount);
 
-export type Country = { code: string; name: string; currency: string; tax: string; wallets: string[] };
+export type Country = { code: string; name: string; currency: string; tax: string };
 export const COUNTRIES: Country[] = [
-  { code: "UG", name: "Uganda", currency: "UGX", tax: "URA", wallets: ["MTN Mobile Money", "Airtel Money"] },
-  { code: "KE", name: "Kenya", currency: "KES", tax: "KRA", wallets: ["M-Pesa (Safaricom)", "Airtel Money"] },
-  { code: "TZ", name: "Tanzania", currency: "TZS", tax: "TRA", wallets: ["M-Pesa (Vodacom)", "Tigo Pesa", "Airtel Money"] },
-  { code: "RW", name: "Rwanda", currency: "RWF", tax: "RRA", wallets: ["MTN MoMo", "Airtel Money"] },
-  { code: "BI", name: "Burundi", currency: "BIF", tax: "OBR", wallets: ["Lumicash", "EcoCash"] },
-  { code: "SS", name: "South Sudan", currency: "USD", tax: "National Revenue Authority", wallets: ["MTN MoMo"] },
-  { code: "CD", name: "DR Congo", currency: "CDF", tax: "DGI", wallets: ["M-Pesa (Vodacom)", "Orange Money", "Airtel Money"] },
-  { code: "SO", name: "Somalia", currency: "USD", tax: "Ministry of Finance (Inland Revenue)", wallets: ["EVC Plus (Hormuud)", "Sahal"] },
+  { code: "UG", name: "Uganda", currency: "UGX", tax: "URA" },
+  { code: "KE", name: "Kenya", currency: "KES", tax: "KRA" },
+  { code: "TZ", name: "Tanzania", currency: "TZS", tax: "TRA" },
+  { code: "RW", name: "Rwanda", currency: "RWF", tax: "RRA" },
+  { code: "BI", name: "Burundi", currency: "BIF", tax: "OBR" },
+  { code: "SS", name: "South Sudan", currency: "USD", tax: "National Revenue Authority" },
+  { code: "CD", name: "DR Congo", currency: "CDF", tax: "DGI" },
+  { code: "SO", name: "Somalia", currency: "USD", tax: "Ministry of Finance (Inland Revenue)" },
 ];
 
 // Live rates from a public feed, cached 6 hours; falls back to indicative rates.

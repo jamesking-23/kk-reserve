@@ -1,6 +1,7 @@
 // Money helpers. Stored amounts are always in the base currency (UGX). The display currency only changes how they are shown.
 let disp = { cur: "UGX", rate: 1 };
 export const setDisplay = (cur: string, rate: number) => { disp = { cur, rate: rate > 0 ? rate : 1 }; };
+export const displayCurrency = () => disp.cur;
 export const toDisplay = (n: number) => n * disp.rate;
 const NO_DECIMALS = ["UGX", "KES", "TZS", "RWF", "BIF", "CDF", "SOS"];
 export const fmtIn = (n: number, currency: string, locale = "en-UG") =>

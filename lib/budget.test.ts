@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { statusOf } from "./budget";
 import { fmt, parseMoney, groupDigits, setDisplay } from "./money";
 import { convert, FALLBACK } from "./fx";
-import { payoff, forecastBalance, monteCarlo, healthScore, rentVsBuy } from "./finance";
+import { payoff, forecastBalance, monteCarlo, healthScore, rentVsBuy, amortize, futureValue, requiredMonthly } from "./finance";
 describe("statusOf", () => {
   it("matches the live data => On Track", () => expect(statusOf(542800, 600000, 446910)).toBe("On Track"));
   it("At Risk / Over Budget", () => { expect(statusOf(100, 1000, 90)).toBe("At Risk"); expect(statusOf(2000, 1000, 0)).toBe("Over Budget"); });
@@ -33,4 +33,12 @@ describe("planning", () => {
   });
   it("rent vs buy returns a payment", () => expect(rentVsBuy({ price: 1e6, downPct: 20, rate: 10, years: 20, rent: 4000, rentGrowth: 5, appreciation: 5, investReturn: 7 }).pmt).toBeGreaterThan(0));
   it("health score is within 0-100", () => { const h = healthScore({ status: "On Track", saved: 600, liquid: 0, monthlySpend: 100, debt: 0, assets: 0 }); expect(h.score).toBeLessThanOrEqual(100); expect(h.score).toBeGreaterThan(0); expect(healthScore({ status: null, saved: 0, liquid: 0, monthlySpend: 0, debt: 0, assets: 0 }).parts.length).toBe(2); });
+});
+
+describe("calculators", () => {
+  it("amortises a 0% loan evenly", () => { const a = amortize(1200, 0, 12); expect(a.payment).toBeCloseTo(100); expect(a.interest).toBeCloseTo(0); expect(a.months).toBe(12); });
+  it("extra payments shorten the loan and cut interest", () => { const a = amortize(10000, 12, 36), b = amortize(10000, 12, 36, 100); expect(b.months).toBeLessThan(a.months); expect(b.interest).toBeLessThan(a.interest); });
+  it("future value grows with contributions", () => { const g = futureValue(1000, 100, 0, 2); expect(g[2].balance).toBeCloseTo(3400); expect(g[2].contributed).toBe(3400); });
+  it("required monthly saving reaches the target", () => { const m = requiredMonthly(10000, 0, 6, 5), g = futureValue(0, m, 6, 5); expect(g[5].balance).toBeCloseTo(10000, 0); });
+  it("health score includes income-based parts only when income exists", () => { expect(healthScore({ status: null, saved: 0, liquid: 0, monthlySpend: 0, debt: 0, assets: 0, income: 1000, debtPayments: 100 }).parts.length).toBe(4); });
 });

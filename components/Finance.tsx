@@ -1,9 +1,9 @@
 "use client";
 import { useEffect, useState, useCallback, ComponentType, ReactNode } from "react";
-import { AlertTriangle, Trash2, CheckCircle2, Globe, Link2, Info } from "lucide-react";
+import { AlertTriangle, Trash2, CheckCircle2, Info } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { fmt, fmtIn, parseMoney, groupDigits } from "@/lib/money";
-import { payoff, forecastBalance, monteCarlo, rentVsBuy, monthlyEq, ASSET_CLASSES as CLASSES } from "@/lib/finance";
+import { payoff, forecastBalance, monteCarlo, rentVsBuy, monthlyEq, ASSET_CLASSES as CLASSES, LIQUID_CLASSES } from "@/lib/finance";
 import { CURRENCIES, COUNTRIES, convert, Rates } from "@/lib/fx";
 import { AreaChart, Donut, PALETTE } from "@/components/Charts";
 
@@ -32,26 +32,43 @@ function Remove({ onConfirm, label }: { onConfirm: () => void; label: string }) 
 
 /* ---------- Cash flow: subscriptions + forecast ---------- */
 type SubRow = { id: string; name: string; amount: number; cycle: string; next_renewal: string; last_used: string | null; status: string; created_at: string };
-export function CashFlow({ Btn, say, balance, avgDaily }: Common & { balance: number; avgDaily: number }) {
-  const { rows, load } = useRows<SubRow>("subscriptions");
-  const [f, setF] = useState({ name: "", amount: "", cycle: "monthly", next: "" });
-  const [withSubs, setWithSubs] = useState(true);
-  const today = new Date().toISOString().slice(0, 10), active = rows.filter(r => r.status === "active");
+type IncRow = { id: string; name: string; amount: number; cycle: string; next_date: string; status: string };
+export function CashFlow({ Btn, say, rates }: Common & { rates: Rates }) {
+  const { rows, load } = useRows<SubRow>("subscriptions"); const inc = useRows<IncRow>("income_sources");
+  const [f, setF] = useState({ name: "", amount: "", cycle: "monthly", next: "" }); const [fi, setFi] = useState({ name: "", amount: "", cycle: "monthly", next: "" });
+  const [withSubs, setWithSubs] = useState(true); const [liquid, setLiquid] = useState(0); const [avgDaily, setAvg] = useState(0);
+  useEffect(() => { (async () => {
+    const since = new Date(Date.now() - 60 * 864e5).toISOString().slice(0, 10);
+    const [a, e] = await Promise.all([supabase.from("assets").select("class,value,currency"), supabase.from("expenses").select("amount,spent_on").gte("spent_on", since)]);
+    setLiquid((a.data ?? []).filter(x => LIQUID_CLASSES.includes(x.class)).reduce((t, x) => t + convert(Number(x.value), x.currency, "UGX", rates), 0));
+    const ex = e.data ?? [], first = ex.reduce((m, x) => (x.spent_on < m ? x.spent_on : m), "9999-99-99"), span = first === "9999-99-99" ? 30 : Math.min(60, Math.max(7, Math.ceil((Date.now() - new Date(first + "T00:00:00").getTime()) / 864e5) + 1));
+    setAvg(ex.reduce((t, x) => t + Number(x.amount), 0) / span);
+  })(); }, [rates]);
+  const today = new Date().toISOString().slice(0, 10), active = rows.filter(r => r.status === "active"), incomes = inc.rows.filter(r => r.status === "active");
   const days = (d: string) => Math.ceil((new Date(d + "T00:00:00").getTime() - Date.now()) / 864e5);
   const idle = (r: SubRow) => Date.now() - new Date((r.last_used ?? r.created_at.slice(0, 10)) + "T00:00:00").getTime() > 60 * 864e5;
   const add = async () => { const a = parseMoney(f.amount); if (!f.name.trim() || a === null || !f.next) return say("Enter a name, amount and next renewal date.");
     const { error } = await supabase.from("subscriptions").insert({ name: f.name.trim(), amount: a, cycle: f.cycle, next_renewal: f.next }); if (error) return say(error.message); setF({ ...f, name: "", amount: "" }); load(); };
+  const addIncome = async () => { const a = parseMoney(fi.amount); if (!fi.name.trim() || a === null || !fi.next) return say("Enter a name, amount and next pay date.");
+    const { error } = await supabase.from("income_sources").insert({ name: fi.name.trim(), amount: a, cycle: fi.cycle, next_date: fi.next }); if (error) return say(error.message); setFi({ ...fi, name: "", amount: "" }); inc.load(); };
   const patch = async (id: string, v: object) => { await supabase.from("subscriptions").update(v).eq("id", id); load(); };
-  const series = forecastBalance(balance, avgDaily, withSubs ? active.map(r => ({ amount: Number(r.amount), cycle: r.cycle, next: r.next_renewal })) : [], 90);
-  const runOut = series.findIndex(v => v < 0), monthly = active.reduce((t, r) => t + monthlyEq(Number(r.amount), r.cycle), 0);
+  const flows = [...(withSubs ? active.map(r => ({ amount: Number(r.amount), cycle: r.cycle, next: r.next_renewal })) : []), ...incomes.map(r => ({ amount: -Number(r.amount), cycle: r.cycle, next: r.next_date }))];
+  const series = forecastBalance(liquid, avgDaily, flows, 90);
+  const runOut = series.findIndex(v => v < 0), monthly = active.reduce((t, r) => t + monthlyEq(Number(r.amount), r.cycle), 0), monthlyIn = incomes.reduce((t, r) => t + monthlyEq(Number(r.amount), r.cycle), 0);
   const chart = series.map((v, i) => ({ label: i === 0 ? "Today" : `+${i}d`, value: Math.max(v, 0) })).filter((_, i) => i % 3 === 0);
   return (
-    <Page title="Cash flow" sub="Forecast your balance and keep recurring charges under control."
+    <Page title="Cash flow" sub="Forecast your liquid cash from income, spending and recurring charges."
       rail={<><Card title="Forecast"><Kpi label="In 30 days" value={fmt(series[30])} /><Kpi label="In 60 days" value={fmt(series[60])} /><Kpi label="In 90 days" value={fmt(series[90])} />
-        <p className={`flex items-start gap-2 text-sm ${runOut > 0 ? "text-red-400" : "text-gray-400"}`}>{runOut > 0 ? <><AlertTriangle size={16} className="mt-0.5 shrink-0" />At this pace your balance runs out in about {runOut} days.</> : "Your balance lasts through the next 90 days at this pace."}</p></Card>
-        <Card title="Subscriptions"><Kpi label="Monthly cost" value={fmt(monthly)} /><Kpi label="Yearly cost" value={fmt(monthly * 12)} /></Card></>}>
-      <Card title="90-day balance forecast"><p className="text-sm text-gray-400">Based on your average daily spend of {fmt(avgDaily)} (last 60 days) and the budget balance of {fmt(balance)}.</p>
+        <p className={`flex items-start gap-2 text-sm ${runOut > 0 ? "text-red-400" : "text-gray-400"}`}>{runOut > 0 ? <><AlertTriangle size={16} className="mt-0.5 shrink-0" />At this pace your cash runs out in about {runOut} days.</> : "Your cash lasts through the next 90 days at this pace."}</p></Card>
+        <Card title="Monthly picture"><Kpi label="Income" value={fmt(monthlyIn)} /><Kpi label="Subscriptions" value={fmt(monthly)} /><Kpi label="Average daily spend" value={fmt(avgDaily)} /></Card></>}>
+      <Card title="90-day cash forecast"><p className="text-sm text-gray-400">Starts from your liquid cash of {fmt(liquid)} (bank, mobile money and cash accounts under Wealth), using your recent daily spending, recurring income and renewals.</p>
+        {liquid === 0 && <p className="text-sm text-yellow-300">Add your cash accounts under Wealth for an accurate forecast.</p>}
         <AreaChart data={chart} /><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={withSubs} onChange={e => setWithSubs(e.target.checked)} /> Include subscription renewals (turn off if you already log them as expenses)</label></Card>
+      <Card title="Income sources">{incomes.length === 0 && <p className="text-sm text-gray-400">No recurring income yet. Add salary, business income or other regular inflows.</p>}
+        {incomes.map(r => <div key={r.id} className="flex items-center justify-between gap-2 rounded-2xl bg-white/5 p-3 text-sm"><div className="min-w-0"><p className="font-semibold">{r.name}</p><p className="text-gray-400">{fmt(Number(r.amount))} {r.cycle} - next {new Date(r.next_date + "T00:00:00").toLocaleDateString("en-UG", { day: "numeric", month: "short" })}</p></div>
+          <Remove label={`Delete ${r.name}`} onConfirm={async () => { await supabase.from("income_sources").delete().eq("id", r.id); inc.load(); }} /></div>)}
+        <div className="grid gap-2 sm:grid-cols-2"><input className={input} aria-label="Income name" placeholder="Name (e.g. Salary)" value={fi.name} onChange={e => setFi({ ...fi, name: e.target.value })} /><input className={input} aria-label="Income amount" inputMode="numeric" placeholder="Amount" value={fi.amount} onChange={e => setFi({ ...fi, amount: groupDigits(e.target.value) })} />
+          <select className={input} aria-label="Frequency" value={fi.cycle} onChange={e => setFi({ ...fi, cycle: e.target.value })}>{["weekly", "monthly", "quarterly", "yearly"].map(c => <option key={c}>{c}</option>)}</select><input className={input} type="date" aria-label="Next pay date" value={fi.next} onChange={e => setFi({ ...fi, next: e.target.value })} /></div><Btn onClick={addIncome}>Add income</Btn></Card>
       <Card title="Active subscriptions">
         {active.length === 0 && <p className="text-sm text-gray-400">No subscriptions tracked yet.</p>}
         {active.map(r => { const d = days(r.next_renewal); return (
@@ -63,7 +80,7 @@ export function CashFlow({ Btn, say, balance, avgDaily }: Common & { balance: nu
               <button className="glass rounded-lg px-2 py-1" onClick={() => patch(r.id, { last_used: today })}>Mark used today</button>
               <button className="glass rounded-lg px-2 py-1" onClick={() => patch(r.id, { status: "cancelled" })}>Start cancellation</button></div></div>); })}</Card>
       {rows.some(r => r.status === "cancelled") && <Card title="Cancellation checklist">{rows.filter(r => r.status === "cancelled").map(r => (
-        <div key={r.id} className="text-sm"><p className="font-semibold">{r.name}</p><ul className="list-disc pl-5 text-gray-400"><li>Cancel with the provider (app, website or support).</li><li>Remove your saved payment method or mobile money approval.</li><li>Keep the confirmation message or email.</li></ul>
+        <div key={r.id} className="text-sm"><p className="font-semibold">{r.name}</p><ul className="list-disc pl-5 text-gray-400"><li>Cancel with the provider (app, website or support).</li><li>Remove your saved payment method.</li><li>Keep the confirmation message or email.</li></ul>
           <button className="mt-1 inline-flex items-center gap-1 text-yellow-400" onClick={() => supabase.from("subscriptions").delete().eq("id", r.id).then(load)}><CheckCircle2 size={14} />Done, remove from list</button></div>))}</Card>}
       <Card title="Add a subscription"><div className="grid gap-2 sm:grid-cols-2"><input className={input} aria-label="Name" placeholder="Name (e.g. Netflix)" value={f.name} onChange={e => setF({ ...f, name: e.target.value })} />
         <input className={input} aria-label="Amount" inputMode="numeric" placeholder="Amount" value={f.amount} onChange={e => setF({ ...f, amount: groupDigits(e.target.value) })} />
@@ -73,7 +90,6 @@ export function CashFlow({ Btn, say, balance, avgDaily }: Common & { balance: nu
   );
 }
 
-/* ---------- Debt hub + payoff simulator ---------- */
 type DebtRow = { id: string; name: string; kind: string; balance: number; apr: number; min_payment: number };
 const KINDS = ["Mortgage", "SACCO loan", "Student loan", "Auto financing", "Personal loan", "Credit card"];
 export function DebtHub({ Btn, say }: Common) {
@@ -91,7 +107,7 @@ export function DebtHub({ Btn, say }: Common) {
       {base.months !== null && p.months !== null && <p className="text-green-400">Saves {fmt(Math.max(0, base.interest - p.interest))} vs minimums only</p>}<p className="mt-1 text-gray-400">Order: {p.order.join(", ") || "-"}</p></div>);
   return (
     <Page title="Debt and liabilities" sub="Track what you owe and compare payoff strategies."
-      rail={<Card title="Summary"><Kpi label="Total owed" value={fmt(total)} /><Kpi label="Monthly minimums" value={fmt(mins)} /><p className="flex items-start gap-2 text-xs text-gray-400"><Info size={14} className="mt-0.5 shrink-0" />Credit score monitoring needs a credit bureau partner and is not connected.</p></Card>}>
+      rail={<Card title="Summary"><Kpi label="Total owed" value={fmt(total)} /><Kpi label="Monthly minimums" value={fmt(mins)} /></Card>}>
       <Card title="Your liabilities">{rows.length === 0 && <p className="text-sm text-gray-400">No debts recorded.</p>}
         {rows.map(r => <div key={r.id} className="flex items-center justify-between gap-2 rounded-2xl bg-white/5 p-3 text-sm"><div className="min-w-0"><p className="font-semibold">{r.name} <span className="font-normal text-gray-400">({r.kind})</span></p>
           <p className="text-gray-400">{fmt(Number(r.balance))} at {Number(r.apr)}% APR - min {fmt(Number(r.min_payment))}/month</p></div>
@@ -108,28 +124,30 @@ export function DebtHub({ Btn, say }: Common) {
 }
 
 /* ---------- Wealth: manual multi-asset tracking + net worth ---------- */
-type AssetRow = { id: string; name: string; class: string; value: number; currency: string };
+type AssetRow = { id: string; name: string; class: string; value: number; currency: string; cost_basis: number | null };
 export function Wealth({ Btn, say, rates }: Common & { rates: Rates }) {
   const { rows, load } = useRows<AssetRow>("assets"); const debts = useRows<DebtRow>("liabilities").rows;
-  const [f, setF] = useState({ name: "", cls: CLASSES[0], value: "", cur: "UGX" });
+  const [f, setF] = useState({ name: "", cls: CLASSES[0], value: "", cur: "UGX", cost: "" });
   const add = async () => { const v = parseMoney(f.value); if (!f.name.trim() || v === null) return say("Enter a name and a valid value.");
-    const { error } = await supabase.from("assets").insert({ name: f.name.trim(), class: f.cls, value: v, currency: f.cur }); if (error) return say(error.message); setF({ ...f, name: "", value: "" }); load(); };
+    const cb = f.cost.trim() ? parseMoney(f.cost) : null; if (f.cost.trim() && cb === null) return say("Enter a valid cost basis or leave it empty.");
+    const { error } = await supabase.from("assets").insert({ name: f.name.trim(), class: f.cls, value: v, currency: f.cur, cost_basis: cb }); if (error) return say(error.message); setF({ ...f, name: "", value: "", cost: "" }); load(); };
   const base = (a: AssetRow) => convert(Number(a.value), a.currency, "UGX", rates);
   const assets = rows.reduce((t, a) => t + base(a), 0), owed = debts.reduce((t, d) => t + Number(d.balance), 0);
   const byClass = CLASSES.map((c, i) => ({ label: c, value: rows.filter(a => a.class === c).reduce((t, a) => t + base(a), 0), color: PALETTE[i % PALETTE.length] })).filter(x => x.value > 0);
   return (
-    <Page title="Wealth" sub="Manual valuations across every asset class, with net worth."
+    <Page title="Wealth" sub="Accounts and holdings you track, with net worth and gain or loss."
       rail={<><Card title="Net worth"><Kpi label="Net worth" value={fmt(assets - owed)} /><Kpi label="Assets" value={fmt(assets)} /><Kpi label="Liabilities" value={fmt(owed)} /></Card>
         <Card title="Allocation"><Donut slices={byClass} total={assets} /><ul className="space-y-1 text-sm">{byClass.map(x => <li key={x.label} className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full" style={{ background: x.color }} /><span className="flex-1">{x.label}</span><span>{Math.round((x.value / assets) * 100)}%</span></li>)}</ul></Card>
-        <p className="flex items-start gap-2 text-xs text-gray-400"><Info size={14} className="mt-0.5 shrink-0" />Values are entered by you. Live market prices, benchmarks and tax-loss harvesting need market-data partners and are not connected.</p></>}>
-      <Card title="Holdings">{rows.length === 0 && <p className="text-sm text-gray-400">No assets yet. Add your first holding below.</p>}
+        <p className="flex items-start gap-2 text-xs text-gray-400"><Info size={14} className="mt-0.5 shrink-0" />Values are entered and updated by you. Add a cost basis to track gain or loss.</p></>}>
+      <Card title="Holdings">{rows.length === 0 && <p className="text-sm text-gray-400">No accounts or assets yet. Add your first one below.</p>}
         {rows.map(a => <div key={a.id} className="flex items-center justify-between gap-2 rounded-2xl bg-white/5 p-3 text-sm"><div className="min-w-0"><p className="font-semibold">{a.name}</p><p className="text-gray-400">{a.class}</p></div>
-          <div className="text-right"><p className="font-semibold">{fmtIn(Number(a.value), a.currency)}</p>{a.currency !== "UGX" && <p className="text-xs text-gray-400">about {fmt(base(a))}</p>}</div>
+          <div className="text-right"><p className="font-semibold">{fmtIn(Number(a.value), a.currency)}</p>{a.currency !== "UGX" && <p className="text-xs text-gray-400">about {fmt(base(a))}</p>}{a.cost_basis !== null && a.cost_basis !== undefined && Number(a.cost_basis) > 0 && <p className={`text-xs font-medium ${Number(a.value) >= Number(a.cost_basis) ? "text-green-400" : "text-red-400"}`}>{Number(a.value) >= Number(a.cost_basis) ? "+" : ""}{(((Number(a.value) - Number(a.cost_basis)) / Number(a.cost_basis)) * 100).toFixed(1)}%</p>}</div>
           <Remove label={`Delete ${a.name}`} onConfirm={async () => { await supabase.from("assets").delete().eq("id", a.id); load(); }} /></div>)}</Card>
-      <Card title="Add an asset"><div className="grid gap-2 sm:grid-cols-2"><input className={input} aria-label="Name" placeholder="Name (e.g. Plot in Entebbe)" value={f.name} onChange={e => setF({ ...f, name: e.target.value })} />
+      <Card title="Add an account or asset"><div className="grid gap-2 sm:grid-cols-2"><input className={input} aria-label="Name" placeholder="Name (e.g. Stanbic savings, Plot in Entebbe)" value={f.name} onChange={e => setF({ ...f, name: e.target.value })} />
         <select className={input} aria-label="Asset class" value={f.cls} onChange={e => setF({ ...f, cls: e.target.value })}>{CLASSES.map(c => <option key={c}>{c}</option>)}</select>
         <input className={input} aria-label="Value" inputMode="numeric" placeholder="Current value" value={f.value} onChange={e => setF({ ...f, value: groupDigits(e.target.value) })} />
-        <select className={input} aria-label="Currency" value={f.cur} onChange={e => setF({ ...f, cur: e.target.value })}>{CURRENCIES.map(c => <option key={c}>{c}</option>)}</select></div><Btn onClick={add}>Add asset</Btn></Card>
+        <select className={input} aria-label="Currency" value={f.cur} onChange={e => setF({ ...f, cur: e.target.value })}>{CURRENCIES.map(c => <option key={c}>{c}</option>)}</select>
+        <input className={input} aria-label="Cost basis" inputMode="numeric" placeholder="Cost basis (optional)" value={f.cost} onChange={e => setF({ ...f, cost: groupDigits(e.target.value) })} /></div><Btn onClick={add}>Add</Btn></Card>
     </Page>
   );
 }
@@ -173,7 +191,6 @@ export function Region({ rates, live, country, onCountry, display, onDisplay, sa
       <Card title="Currency converter"><div className="grid grid-cols-3 gap-2"><input className={input} aria-label="Amount" inputMode="decimal" value={amt} onChange={e => setAmt(e.target.value)} />
         <select className={input} aria-label="From" value={from} onChange={e => setFrom(e.target.value)}>{CURRENCIES.map(x => <option key={x}>{x}</option>)}</select><select className={input} aria-label="To" value={to} onChange={e => setTo(e.target.value)}>{CURRENCIES.map(x => <option key={x}>{x}</option>)}</select></div>
         <p className="text-lg font-bold">{fmtIn(convert(num(amt), from, to, rates), to)}</p></Card>
-      <Card title="Other connections"><p className="flex items-start gap-2 text-sm text-gray-400"><Link2 size={16} className="mt-0.5 shrink-0" />Common wallets in {c?.name ?? "your country"}: {(c?.wallets ?? ["select a country"]).join(", ")}. Bank aggregators (Stitch, Mono, PawaPay) and other wallets are not connected.</p></Card>
     </Page>
   );
 }
