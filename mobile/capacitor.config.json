@@ -1,0 +1,12 @@
+{
+  "appId": "com.kkingg.reserves",
+  "appName": "kkingg reserves",
+  "webDir": "www",
+  "server": {
+    "url": "https://kk-reserve-kkingg.vercel.app",
+    "cleartext": false,
+    "allowNavigation": ["kk-reserve-kkingg.vercel.app", "psypetkhwwsezfhywwmk.supabase.co"]
+  },
+  "android": { "allowMixedContent": false },
+  "backgroundColor": "#1b1b3a"
+}

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">kkingg reserves</string>
+    <string name="title_activity_main">kkingg reserves</string>
+    <string name="package_name">com.kkingg.reserves</string>
+    <string name="custom_url_scheme">com.kkingg.reserves</string>
+</resources>
