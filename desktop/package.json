@@ -1,0 +1,36 @@
+{
+  "name": "kkingg-reserves-desktop",
+  "version": "1.0.0",
+  "description": "Desktop app for kkingg reserves",
+  "author": "kkingg reserves",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win --x64 --publish never"
+  },
+  "devDependencies": {
+    "electron": "^39.0.0",
+    "electron-builder": "^26.0.0"
+  },
+  "build": {
+    "appId": "com.kkingg.reserves",
+    "productName": "kkingg reserves",
+    "directories": { "output": "dist", "buildResources": "build" },
+    "files": ["main.js", "package.json"],
+    "win": {
+      "icon": "build/icon.png",
+      "target": [
+        { "target": "nsis", "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "artifactName": "kkingg-reserves-setup.exe"
+    },
+    "portable": { "artifactName": "kkingg-reserves-portable.exe" }
+  }
+}
